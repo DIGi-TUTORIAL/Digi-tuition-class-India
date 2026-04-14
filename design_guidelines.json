@@ -1,0 +1,73 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "color_palette": {
+    "background": "#FFFFFF",
+    "surface": "#FDFCFE",
+    "primary": "#5B21B6",
+    "primary_hover": "#4C1D95",
+    "secondary": "#F3E8FF",
+    "text_primary": "#030712",
+    "text_secondary": "#4B5563",
+    "border": "#E5E7EB",
+    "accent": "#7C3AED",
+    "error": "#DC2626",
+    "success": "#16A34A"
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "IBM Plex Sans",
+    "h1": "text-4xl sm:text-5xl font-bold tracking-tight text-gray-950",
+    "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900",
+    "h3": "text-xl font-medium text-gray-900",
+    "body": "text-base text-gray-600 leading-relaxed",
+    "small": "text-sm text-gray-500",
+    "label": "text-xs font-semibold uppercase tracking-[0.2em] text-gray-500"
+  },
+  "layout": {
+    "spacing_scale": "Generous spacing. p-6 and p-8 for standard containers.",
+    "admin_dashboard": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 (Control Room Pattern). Dense layout, full height utilization.",
+    "student_dashboard": "grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8 (Bento Grid Pattern). Asymmetrical spans (col-span-4, col-span-8) for visual tension.",
+    "borders": "Technical Look: 1px solid border-gray-200. No heavy or muddy shadows. Keep it flat and crisp.",
+    "radius": "rounded-md for general elements, rounded-sm for small inputs."
+  },
+  "components": {
+    "buttons": "Solid primary background (#5B21B6) with white text. Hover state must explicitly lighten or darken (#4C1D95).",
+    "cards": "Flat background (bg-white), 1px subtle border (border-gray-200), no drop shadow by default.",
+    "forms": "Use Shadcn components. Remove default SaaS look. Generous padding, crisp borders. Focus states must use high-contrast ring-purple-600.",
+    "tables": "Shadcn UI. Dense data presentation. Use IBM Plex Sans for tabular data.",
+    "navigation": "Crystal Glassmorphism (backdrop-blur-xl bg-white/80) if sticky, or pure flat white with 1px border-b if static."
+  },
+  "motion": {
+    "hover": "transition-colors duration-200 ease-in-out",
+    "click": "scale-[0.98]",
+    "entrance": "Staggered fade-up for bento grid items and table rows."
+  },
+  "media": {
+    "image_urls": {
+      "login_hero": {
+        "url": "https://images.unsplash.com/photo-1771873437291-674dc79b4653?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxzdHVkZW50JTIwbGFwdG9wJTIwc21pbGluZ3xlbnwwfHx8fDE3NzYxMzEyMTZ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Student working on laptop. Use for login page background.",
+        "category": "hero"
+      },
+      "abstract_background": {
+        "url": "https://images.pexels.com/photos/34886761/pexels-photo-34886761.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Abstract purple geometric pattern. Use for empty states, sidebars, or decorative banners.",
+        "category": "background"
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure deep purple meets APCA standards against white.",
+    "test_attributes": "CRITICAL: All interactive elements (buttons, inputs, links) MUST have data-testid attributes (e.g., data-testid='student-join-class-btn')."
+  },
+  "instructions_to_main_agent": [
+    "E1 Design Principle: Color is function. 95% of UI must be monochrome (White/Grays). Use the Deep Purple (#5B21B6) ONLY to guide action (Buttons, Active states, Key Metrics).",
+    "Do not use generic purple-to-blue gradients. Stick to solid, high-contrast colors.",
+    "Implement the 3 Role-Based Dashboards: Admin (Control Room Grid), Teacher (List/Schedule Focus), Student (Bento Grid).",
+    "Admin requirement: Enforce mandatory fields for Student Enrollment (Name, Parent Name, Contact, Gmail ID).",
+    "Student requirement: Implement the class logic precisely. Disable 'Join Class' if remaining classes are 0.",
+    "Use Shadcn UI extensively for complex interactions (Tables, Modals, Forms) but style them to match the Swiss High-Contrast aesthetic.",
+    "Add data-testid to everything. Do not forget."
+  ]
+}
