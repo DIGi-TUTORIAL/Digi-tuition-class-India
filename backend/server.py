@@ -40,7 +40,7 @@ def get_jwt_secret() -> str:
 def create_access_token(user_id: str, email: str) -> str:
     payload = {
         "sub": user_id, "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
         "type": "access"
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -83,7 +83,7 @@ async def require_role(user: dict, allowed_roles: List[str]):
 def set_auth_cookies(response: Response, user_id: str, email: str):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
 
 # =================== REQUEST MODELS ===================
@@ -620,7 +620,16 @@ async def get_payments(user: dict = Depends(get_current_user)):
 @api_router.get("/admin/zoom-status")
 async def get_zoom_status(user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
-    return {"configured": zoom_manager.is_configured()}
+    configured = zoom_manager.is_configured()
+    connected = False
+    error_msg = ""
+    if configured:
+        try:
+            await zoom_manager.get_access_token()
+            connected = True
+        except Exception as e:
+            error_msg = str(e)
+    return {"configured": configured, "connected": connected, "error": error_msg}
 
 # =================== TEACHER ENDPOINTS ===================
 @api_router.get("/teacher/classes")

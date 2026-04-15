@@ -34,7 +34,11 @@ class ZoomTokenManager:
                 auth=(self.client_id, self.client_secret),
                 timeout=10.0,
             )
-            response.raise_for_status()
+            if response.status_code != 200:
+                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                error_reason = error_data.get("reason", error_data.get("error", "Unknown error"))
+                logger.error(f"Zoom token request failed: {response.status_code} - {error_reason}")
+                raise Exception(f"Zoom authentication failed: {error_reason}")
             token_data = response.json()
             self.access_token = token_data["access_token"]
             expires_in = token_data.get("expires_in", 3600)

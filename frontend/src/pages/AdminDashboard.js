@@ -95,7 +95,7 @@ const AdminDashboard = () => {
   const fetchClasses = async () => { try { const { data } = await ax('/api/admin/classes'); setClasses(data); } catch (e) { console.error(e); } };
   const fetchCourses = async () => { try { const { data } = await ax('/api/admin/courses'); setCourses(data); } catch (e) { console.error(e); } };
   const fetchPayments = async () => { try { const { data } = await ax('/api/admin/payments'); setPayments(data); } catch (e) { console.error(e); } };
-  const checkZoom = async () => { try { const { data } = await ax('/api/admin/zoom-status'); setZoomConfigured(data.configured); } catch (e) {} };
+  const checkZoom = async () => { try { const { data } = await ax('/api/admin/zoom-status'); setZoomConfigured(data.connected); } catch (e) {} };
 
   const handleCreateTeacher = async (e) => {
     e.preventDefault();
