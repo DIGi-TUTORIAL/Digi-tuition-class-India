@@ -897,12 +897,36 @@ async def startup():
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
 
     os.makedirs("/app/memory", exist_ok=True)
+
+    # Seed demo teacher
+    demo_teacher_email = "teacher@demo.com"
+    existing_teacher = await db.users.find_one({"email": demo_teacher_email})
+    if not existing_teacher:
+        await db.users.insert_one({"email": demo_teacher_email, "password_hash": hash_password("teacher123"), "name": "Demo Teacher", "role": "teacher", "hourly_rate": 25.0, "created_at": datetime.now(timezone.utc)})
+
+    # Seed demo student
+    demo_student_email = "student@demo.com"
+    existing_student = await db.users.find_one({"email": demo_student_email})
+    if not existing_student:
+        student_user = await db.users.insert_one({"email": demo_student_email, "password_hash": hash_password("student123"), "name": "Demo Student", "role": "student", "created_at": datetime.now(timezone.utc)})
+        student_uid = str(student_user.inserted_id)
+        student_result = await db.students.insert_one({"user_id": student_uid, "student_name": "Demo Student", "parent_name": "Demo Parent", "contact_number": "1234567890", "gmail_id": demo_student_email, "created_at": datetime.now(timezone.utc)})
+        await db.enrollments.insert_one({"student_id": str(student_result.inserted_id), "total_classes": 10, "used_classes": 0, "remaining_classes": 10})
+
     with open("/app/memory/test_credentials.md", "w") as f:
         f.write("# Test Credentials\n\n")
         f.write("## Admin Account\n")
         f.write(f"Email: {admin_email}\n")
         f.write(f"Password: {admin_password}\n")
         f.write("Role: admin\n\n")
+        f.write("## Demo Teacher Account\n")
+        f.write("Email: teacher@demo.com\n")
+        f.write("Password: teacher123\n")
+        f.write("Role: teacher\n\n")
+        f.write("## Demo Student Account\n")
+        f.write("Email: student@demo.com\n")
+        f.write("Password: student123\n")
+        f.write("Role: student\n\n")
         f.write("## Auth Endpoints\n")
         f.write("- POST /api/auth/login\n")
         f.write("- POST /api/auth/register\n")
