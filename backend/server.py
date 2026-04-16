@@ -101,6 +101,9 @@ class CreateTeacherRequest(BaseModel):
     name: str
     email: EmailStr
     hourly_rate: float = 0.0
+    payment_mode: str = "cycle"  # "cycle" or "per_class"
+    cycle_size: int = 8
+    cycle_amount: float = 0.0
 
 class CreateStudentRequest(BaseModel):
     student_name: str
@@ -141,6 +144,7 @@ class RecordPaymentRequest(BaseModel):
     period_start: str
     period_end: str
     notes: Optional[str] = ""
+    cycle_number: Optional[int] = None
 
 class ReportFilterRequest(BaseModel):
     student_id: Optional[str] = None
@@ -148,6 +152,18 @@ class ReportFilterRequest(BaseModel):
     course_id: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+
+class BulkScheduleRequest(BaseModel):
+    student_id: str
+    teacher_id: str
+    start_date: str
+    end_date: str
+    days_of_week: List[int]  # 0=Mon, 1=Tue, ... 6=Sun
+    time_slot: str  # "HH:MM"
+    duration: int = 60
+    platform: str = "google_meet"
+    meet_link: Optional[str] = None
+    course_id: Optional[str] = None
 
 # =================== AUTH ENDPOINTS ===================
 @api_router.post("/auth/register")
@@ -231,9 +247,9 @@ async def create_teacher(req: CreateTeacherRequest, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Email already registered")
     temp_password = secrets.token_urlsafe(12)
     password_hash = hash_password(temp_password)
-    user_doc = {"name": req.name, "email": email, "password_hash": password_hash, "role": "teacher", "hourly_rate": req.hourly_rate, "created_at": datetime.now(timezone.utc)}
+    user_doc = {"name": req.name, "email": email, "password_hash": password_hash, "role": "teacher", "hourly_rate": req.hourly_rate, "payment_mode": req.payment_mode, "cycle_size": req.cycle_size, "cycle_amount": req.cycle_amount, "created_at": datetime.now(timezone.utc)}
     result = await db.users.insert_one(user_doc)
-    return {"_id": str(result.inserted_id), "name": req.name, "email": email, "role": "teacher", "hourly_rate": req.hourly_rate, "temp_password": temp_password}
+    return {"_id": str(result.inserted_id), "name": req.name, "email": email, "role": "teacher", "hourly_rate": req.hourly_rate, "payment_mode": req.payment_mode, "cycle_size": req.cycle_size, "cycle_amount": req.cycle_amount, "temp_password": temp_password}
 
 @api_router.get("/admin/teachers")
 async def get_teachers(user: dict = Depends(get_current_user)):
@@ -430,6 +446,71 @@ async def update_class(class_id: str, req: UpdateClassRequest, user: dict = Depe
     await db.classes.update_one({"_id": ObjectId(class_id)}, {"$set": update_fields})
     return {"message": "Class updated successfully"}
 
+# =================== ADMIN - BULK SCHEDULING ===================
+@api_router.post("/admin/classes/bulk")
+async def bulk_schedule_classes(req: BulkScheduleRequest, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+
+    from datetime import date as date_type
+    start = datetime.strptime(req.start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(req.end_date, "%Y-%m-%d").date()
+
+    # Max 1 year limit
+    if (end - start).days > 366:
+        raise HTTPException(status_code=400, detail="Maximum 1 year per bulk operation")
+
+    series_id = secrets.token_urlsafe(16)
+    created_classes = []
+    current = start
+
+    while current <= end:
+        # Check if current day matches selected days (0=Mon...6=Sun)
+        if current.weekday() in req.days_of_week:
+            dt_str = f"{current.isoformat()}T{req.time_slot}:00"
+            class_doc = {
+                "student_id": req.student_id,
+                "teacher_id": req.teacher_id,
+                "meet_link": req.meet_link or "",
+                "zoom_link": "",
+                "zoom_meeting_id": None,
+                "platform": req.platform,
+                "date_time": dt_str,
+                "duration": req.duration,
+                "course_id": req.course_id or "",
+                "status": "scheduled",
+                "series_id": series_id,
+                "created_at": datetime.now(timezone.utc)
+            }
+            created_classes.append(class_doc)
+        current += timedelta(days=1)
+
+    if not created_classes:
+        raise HTTPException(status_code=400, detail="No classes to schedule with given parameters")
+
+    await db.classes.insert_many(created_classes)
+    return {"message": f"{len(created_classes)} classes scheduled", "count": len(created_classes), "series_id": series_id}
+
+# =================== ADMIN - NOTIFICATIONS ===================
+@api_router.get("/admin/notifications")
+async def get_notifications(user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    notifs = await db.notifications.find({}).sort("created_at", -1).to_list(50)
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+
+@api_router.patch("/admin/notifications/{notif_id}/read")
+async def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    await db.notifications.update_one({"_id": ObjectId(notif_id)}, {"$set": {"read": True}})
+    return {"message": "Marked as read"}
+
+@api_router.post("/admin/notifications/read-all")
+async def mark_all_read(user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    await db.notifications.update_many({"read": False}, {"$set": {"read": True}})
+    return {"message": "All marked as read"}
+
 # =================== ADMIN - STATS ===================
 @api_router.get("/admin/stats")
 async def get_admin_stats(user: dict = Depends(get_current_user)):
@@ -451,7 +532,8 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
         "total_classes": total_classes,
         "completed_classes": completed_classes,
         "total_courses": total_courses,
-        "total_hours_delivered": total_hours
+        "total_hours_delivered": total_hours,
+        "unread_notifications": await db.notifications.count_documents({"read": False})
     }
 
 # =================== ADMIN - REPORTS ===================
@@ -728,6 +810,55 @@ async def get_teacher_attendance(user: dict = Depends(get_current_user)):
         result.append(log)
     return result
 
+# =================== TEACHER - CYCLE PAYMENTS ===================
+@api_router.get("/teacher/payment-cycles")
+async def get_teacher_payment_cycles(user: dict = Depends(get_current_user)):
+    await require_role(user, ["teacher"])
+    teacher = await db.users.find_one({"_id": ObjectId(user["_id"])}, {"password_hash": 0})
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    payment_mode = teacher.get("payment_mode", "cycle")
+    cycle_size = teacher.get("cycle_size", 8)
+    cycle_amount = teacher.get("cycle_amount", 0)
+
+    completed = await db.classes.count_documents({"teacher_id": user["_id"], "status": "completed"})
+
+    # Build cycle info
+    cycles = []
+    if payment_mode == "cycle" and cycle_size > 0:
+        num_full_cycles = completed // cycle_size
+        remainder = completed % cycle_size
+        for i in range(num_full_cycles + 1):
+            start_cls = i * cycle_size
+            end_cls = min((i + 1) * cycle_size, completed if i == num_full_cycles else (i + 1) * cycle_size)
+            # Check if payment recorded for this cycle
+            paid = await db.payments.find_one({"teacher_id": user["_id"], "cycle_number": i + 1})
+            cycles.append({
+                "cycle_number": i + 1,
+                "start_class": start_cls,
+                "end_class": end_cls,
+                "cycle_size": cycle_size,
+                "amount": cycle_amount,
+                "completed": end_cls - start_cls >= cycle_size,
+                "status": "paid" if paid else ("payable" if end_cls - start_cls >= cycle_size else "in_progress"),
+                "classes_done": end_cls - start_cls,
+            })
+
+    # Get payment history
+    payments = await db.payments.find({"teacher_id": user["_id"]}).to_list(100)
+    for p in payments:
+        p["_id"] = str(p["_id"])
+
+    return {
+        "payment_mode": payment_mode,
+        "cycle_size": cycle_size,
+        "cycle_amount": cycle_amount,
+        "total_completed": completed,
+        "cycles": cycles,
+        "payments": payments
+    }
+
 # =================== STUDENT ENDPOINTS ===================
 @api_router.get("/student/dashboard")
 async def get_student_dashboard(user: dict = Depends(get_current_user)):
@@ -846,6 +977,25 @@ async def student_leave_class(class_id: str, user: dict = Depends(get_current_us
 
     # Mark class as completed
     await db.classes.update_one({"_id": ObjectId(class_id)}, {"$set": {"status": "completed"}})
+
+    # Check if student completed their assigned cycle and notify admin
+    enrollment_updated = await db.enrollments.find_one({"student_id": att.get("class_id", "")})
+    # Get student's enrollment via class
+    class_doc = await db.classes.find_one({"_id": ObjectId(class_id)})
+    if class_doc:
+        s_id = class_doc.get("student_id", "")
+        enrollment_check = await db.enrollments.find_one({"student_id": s_id})
+        if enrollment_check and enrollment_check.get("remaining_classes", 1) <= 0:
+            student_doc = await db.students.find_one({"_id": ObjectId(s_id)})
+            sname = student_doc.get("student_name", "Student") if student_doc else "Student"
+            total = enrollment_check.get("total_classes", 0)
+            await db.notifications.insert_one({
+                "type": "cycle_complete",
+                "message": f"{sname} has completed assigned cycle ({total} classes)",
+                "student_id": s_id,
+                "read": False,
+                "created_at": datetime.now(timezone.utc)
+            })
 
     return {"message": "Left class", "duration_minutes": duration_mins}
 
