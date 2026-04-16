@@ -1,66 +1,53 @@
-# ClassMeet Pro - Product Requirements Document
+# DIGI TUTORIAL CLASSES - Product Requirements Document
 
 ## Original Problem Statement
-Build a full-stack web application for conducting one-to-one live online classes between teachers and students. Admin-controlled platform with class scheduling, student enrollment with mandatory fields, Google Meet + Zoom integration, attendance tracking, reports & analytics, and payment tracking.
+Build a full-stack web application for conducting one-to-one live online classes between teachers and students. Admin-controlled platform with class scheduling, student enrollment, Google Meet + Zoom integration, attendance tracking, reports & analytics, cycle-based payments, bulk scheduling, and DIGI TUTORIAL CLASSES branding.
 
 ## Architecture
 - **Frontend**: React.js + TailwindCSS + Shadcn UI
 - **Backend**: FastAPI (Python) + MongoDB
 - **Auth**: JWT (httpOnly cookies, 60-min access, 7-day refresh)
-- **Integrations**: Google Meet (link-paste), Zoom (Server-to-Server OAuth auto-creation)
+- **Integrations**: Google Meet (link-paste), Zoom (Server-to-Server OAuth)
 - **Design**: Purple & white Swiss high-contrast, Outfit + IBM Plex Sans fonts
 
 ## User Personas
 1. **Admin** - Super control panel, manages everything
-2. **Teacher** - Views assigned classes, joins/leaves with attendance tracking
+2. **Teacher** - Views assigned classes, joins/leaves with attendance, sees cycle payments
 3. **Student** - Views enrollment, class limits, joins/leaves with tracking
 
-## Core Requirements (Static)
-- Student enrollment with mandatory fields (name, parent name, contact, gmail ID)
-- Class limit enforcement (remaining classes check)
-- Role-based access control (admin/teacher/student)
-- Server-side attendance timestamps
+## What's Been Implemented
 
-## What's Been Implemented (April 14-15, 2026)
-
-### Phase 1 - MVP
+### Phase 1 - MVP (April 14, 2026)
 - JWT authentication with login, logout, role-based access
 - Admin dashboard: create teachers, enroll students, schedule classes
-- Teacher dashboard: view assigned classes, join links
-- Student dashboard: enrollment details, class summary, join buttons
-- Class limit enforcement (disable join when remaining=0)
-- Google Meet link-based integration
+- Class limit enforcement, Google Meet integration
 
-### Phase 2 - Advanced Features
-- **Zoom Auto-Meeting Creation**: Server-to-Server OAuth integration (credentials provided but app currently disabled in Zoom marketplace)
-- **Attendance Tracking**: Join/Leave buttons for both teachers and students with server-side timestamps, duration calculation
-- **Course Management**: Create courses, assign students/teachers, batch scheduling
-- **Reports & Analytics**: Student summary, teacher summary, attendance log with filters (by student, teacher, date range)
-- **Payment Tracking**: Teacher hourly rates, payment recording, calculated payment from hours taught
-- **Enhanced Admin Dashboard**: 7-tab sidebar navigation (Overview, Teachers, Students, Classes, Courses, Reports, Payments)
-- **Demo Accounts**: Seeded teacher@demo.com and student@demo.com for testing
+### Phase 2 - Advanced (April 15, 2026)
+- Zoom auto-meeting creation (S2S OAuth)
+- Attendance tracking (join/leave with timestamps, duration calculation)
+- Course management, Reports & analytics, Payment tracking
+
+### Phase 3 - Cycle Payments + Scheduling + Branding (April 16, 2026)
+- **Cycle-Based Teacher Payments (INR)**: Cycle sizes (4/8/12/16/20/24), cycle amounts in INR, teacher sees cycles not per-class rate
+- **Bulk Recurring Scheduling**: Days of week, start/end date, auto-create classes (max 1 year)
+- **Dashboard Notifications**: Bell icon, cycle completion alerts for admin
+- **DIGI TUTORIAL CLASSES Branding**: Logo on login/admin/teacher/student, footer on all pages
+- **Student Cycle Visibility**: Progress circle, used/total/remaining display
+- **Demo Accounts**: Seeded teacher@demo.com and student@demo.com
 
 ## Prioritized Backlog
 
 ### P0 - Done
-- [x] JWT Auth + Role-based access
-- [x] Admin CRUD (teachers, students, classes)
-- [x] Student enrollment with mandatory fields
-- [x] Class limit enforcement
-- [x] Google Meet integration
-- [x] Attendance tracking (join/leave)
-- [x] Reports & analytics
-- [x] Course management
-- [x] Payment tracking
+- [x] All Phase 1, 2, 3 features complete
 
 ### P1 - Next
-- [ ] Re-enable Zoom marketplace app (user action needed)
-- [ ] Email notifications for class reminders
-- [ ] WhatsApp alerts integration
+- [ ] Re-enable Zoom marketplace app (user action)
+- [ ] Email reminders via SendGrid
+- [ ] Class rescheduling (single + series)
 
 ### P2 - Future
 - [ ] Live chat during class
 - [ ] File upload & assignment system
-- [ ] Class rescheduling system
-- [ ] Student fee tracking with payment gateway (Stripe/Razorpay)
+- [ ] Student fee tracking with payment gateway
 - [ ] Google Calendar sync
+- [ ] WhatsApp alerts
