@@ -446,6 +446,57 @@ async def update_class(class_id: str, req: UpdateClassRequest, user: dict = Depe
     await db.classes.update_one({"_id": ObjectId(class_id)}, {"$set": update_fields})
     return {"message": "Class updated successfully"}
 
+# =================== ADMIN - REGENERATE ZOOM LINK ===================
+@api_router.post("/admin/classes/{class_id}/regenerate-zoom")
+async def regenerate_zoom_link(class_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+
+    class_doc = await db.classes.find_one({"_id": ObjectId(class_id)})
+    if not class_doc:
+        raise HTTPException(status_code=404, detail="Class not found")
+
+    if not zoom_manager.is_configured():
+        raise HTTPException(status_code=400, detail="Zoom not configured")
+
+    conn = await zoom_manager.check_connection()
+    if not conn["connected"]:
+        raise HTTPException(status_code=400, detail=f"Zoom not connected: {conn['error']}")
+
+    # Get names for topic
+    student_name = "Student"
+    teacher_name = "Teacher"
+    try:
+        student = await db.students.find_one({"_id": ObjectId(class_doc["student_id"])})
+        if student:
+            student_name = student.get("student_name", "Student")
+        teacher = await db.users.find_one({"_id": ObjectId(class_doc["teacher_id"])})
+        if teacher:
+            teacher_name = teacher.get("name", "Teacher")
+    except Exception:
+        pass
+
+    zoom_data = await zoom_manager.create_meeting(
+        topic=f"Class: {student_name} with {teacher_name}",
+        start_time=class_doc.get("date_time", ""),
+        duration=class_doc.get("duration", 60)
+    )
+
+    await db.classes.update_one(
+        {"_id": ObjectId(class_id)},
+        {"$set": {
+            "zoom_link": zoom_data.get("join_url", ""),
+            "zoom_meeting_id": zoom_data.get("meeting_id"),
+            "zoom_passcode": zoom_data.get("password", ""),
+            "platform": "zoom"
+        }}
+    )
+
+    return {
+        "message": "Zoom link regenerated",
+        "zoom_link": zoom_data.get("join_url", ""),
+        "zoom_meeting_id": zoom_data.get("meeting_id")
+    }
+
 # =================== ADMIN - BULK SCHEDULING ===================
 @api_router.post("/admin/classes/bulk")
 async def bulk_schedule_classes(req: BulkScheduleRequest, user: dict = Depends(get_current_user)):

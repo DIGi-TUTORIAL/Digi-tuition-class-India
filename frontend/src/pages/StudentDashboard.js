@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { LogOut, Video, PhoneOff, Clock, Percent } from 'lucide-react';
+import CalendarView from '../components/CalendarView';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -120,7 +121,7 @@ const StudentDashboard = () => {
         </div>
 
         <Tabs defaultValue="upcoming" className="space-y-4">
-          <TabsList><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="completed">Completed</TabsTrigger><TabsTrigger value="attendance">Attendance Log</TabsTrigger></TabsList>
+          <TabsList><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="calendar">Calendar</TabsTrigger><TabsTrigger value="completed">Completed</TabsTrigger><TabsTrigger value="attendance">Attendance Log</TabsTrigger></TabsList>
 
           <TabsContent value="upcoming">
             {scheduledClasses.length === 0 ? <Card className="p-8 border border-gray-200 rounded-md text-center"><p className="text-gray-500">No upcoming classes</p></Card> : (
@@ -144,6 +145,10 @@ const StudentDashboard = () => {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="calendar">
+            <CalendarView classes={classes} role="student" />
           </TabsContent>
 
           <TabsContent value="completed">

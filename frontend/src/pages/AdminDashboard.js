@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Users, GraduationCap, Calendar, BookOpen, Clock, CreditCard, BarChart3, Video, LogOut, Bell, CalendarPlus } from 'lucide-react';
+import { Users, GraduationCap, Calendar, BookOpen, Clock, CreditCard, BarChart3, Video, LogOut, Bell, CalendarPlus, CalendarDays } from 'lucide-react';
+import CalendarView from '../components/CalendarView';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const ax = (url, opts = {}) => axios({ url: `${BACKEND_URL}${url}`, withCredentials: true, ...opts });
@@ -203,6 +204,7 @@ const AdminDashboard = () => {
           <NavItem icon={Users} label="Teachers" value="teachers" />
           <NavItem icon={GraduationCap} label="Students" value="students" />
           <NavItem icon={Calendar} label="Classes" value="classes" />
+          <NavItem icon={CalendarDays} label="Calendar" value="calendar" />
           <NavItem icon={BookOpen} label="Courses" value="courses" />
           <NavItem icon={Clock} label="Reports" value="reports" />
           <NavItem icon={CreditCard} label="Payments" value="payments" />
@@ -496,6 +498,26 @@ const AdminDashboard = () => {
                   ))}</TableBody>
                 </Table>
               </div>
+            </div>
+          )}
+
+          {/* CALENDAR TAB */}
+          {activeTab === 'calendar' && (
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900 mb-6" style={{ fontFamily: 'Outfit' }}>Class Calendar</h1>
+              <CalendarView
+                classes={classes}
+                role="admin"
+                onRegenerateZoom={async (classId) => {
+                  try {
+                    const { data } = await ax(`/api/admin/classes/${classId}/regenerate-zoom`, { method: 'POST' });
+                    toast.success(`Zoom link regenerated!`);
+                    fetchClasses();
+                  } catch (e) {
+                    toast.error(e.response?.data?.detail || 'Failed to regenerate Zoom link');
+                  }
+                }}
+              />
             </div>
           )}
         </div>
