@@ -300,6 +300,224 @@ class ClassPlatformTester:
         print("   ✓ Brute force protection tested (partial)")
         return True
 
+    def test_zoom_status(self):
+        """Test Zoom connection status"""
+        success, response = self.run_test(
+            "Zoom Status Check",
+            "GET",
+            "admin/zoom-status",
+            200
+        )
+        if success:
+            print(f"   Zoom configured: {response.get('configured', False)}")
+            print(f"   Zoom connected: {response.get('connected', False)}")
+            if response.get('error'):
+                print(f"   Error: {response.get('error')}")
+            return response.get('connected', False)
+        return False
+
+    def test_bulk_schedule_google_meet(self):
+        """Test bulk scheduling with Google Meet"""
+        if not (self.student_id and self.teacher_id):
+            print("❌ Cannot test bulk scheduling - missing student/teacher IDs")
+            return False
+
+        start_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        end_date = (datetime.now() + timedelta(days=8)).strftime('%Y-%m-%d')
+        
+        bulk_data = {
+            "student_id": self.student_id,
+            "teacher_id": self.teacher_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "days_of_week": [1, 3, 5],  # Tue, Thu, Sat
+            "time_slot": "10:00",
+            "duration": 60,
+            "platform": "google_meet",
+            "meet_link": "https://meet.google.com/test-bulk-meet"
+        }
+
+        success, response = self.run_test(
+            "Bulk Schedule Google Meet",
+            "POST",
+            "admin/classes/bulk",
+            200,
+            data=bulk_data
+        )
+        
+        if success:
+            print(f"   Classes created: {response.get('count', 0)}")
+            print(f"   Platform: {response.get('platform', 'unknown')}")
+            return True
+        return False
+
+    def test_bulk_schedule_zoom(self, zoom_connected):
+        """Test bulk scheduling with Zoom"""
+        if not zoom_connected:
+            print("⚠️  Skipping Zoom bulk test - Zoom not connected")
+            return True  # Skip test but don't fail
+            
+        if not (self.student_id and self.teacher_id):
+            print("❌ Cannot test Zoom bulk scheduling - missing student/teacher IDs")
+            return False
+
+        start_date = (datetime.now() + timedelta(days=10)).strftime('%Y-%m-%d')
+        end_date = (datetime.now() + timedelta(days=17)).strftime('%Y-%m-%d')
+        
+        bulk_data = {
+            "student_id": self.student_id,
+            "teacher_id": self.teacher_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "days_of_week": [0, 2, 4],  # Mon, Wed, Fri
+            "time_slot": "14:00",
+            "duration": 60,
+            "platform": "zoom"
+        }
+
+        success, response = self.run_test(
+            "Bulk Schedule Zoom",
+            "POST",
+            "admin/classes/bulk",
+            200,
+            data=bulk_data
+        )
+        
+        if success:
+            print(f"   Classes created: {response.get('count', 0)}")
+            print(f"   Platform: {response.get('platform', 'unknown')}")
+            print(f"   Zoom meetings created: {response.get('zoom_meetings_created', 0)}")
+            print(f"   Zoom meetings failed: {response.get('zoom_meetings_failed', 0)}")
+            return True
+        return False
+
+    def test_single_class_zoom(self, zoom_connected):
+        """Test single class scheduling with Zoom"""
+        if not zoom_connected:
+            print("⚠️  Skipping single Zoom test - Zoom not connected")
+            return True
+            
+        if not (self.student_id and self.teacher_id):
+            print("❌ Cannot test single Zoom class - missing student/teacher IDs")
+            return False
+
+        class_time = (datetime.now() + timedelta(days=20)).strftime('%Y-%m-%dT%H:%M:%S')
+        
+        class_data = {
+            "student_id": self.student_id,
+            "teacher_id": self.teacher_id,
+            "date_time": class_time,
+            "duration": 60,
+            "platform": "zoom"
+        }
+
+        success, response = self.run_test(
+            "Single Class Zoom",
+            "POST",
+            "admin/classes",
+            200,
+            data=class_data
+        )
+        
+        if success:
+            print(f"   Class created with platform: {response.get('platform', 'unknown')}")
+            print(f"   Zoom link present: {'zoom_link' in response and bool(response.get('zoom_link'))}")
+            return True
+        return False
+
+    def verify_classes_created(self):
+        """Verify classes were created and have correct platform/links"""
+        success, classes = self.run_test("Get All Classes", "GET", "admin/classes", 200)
+        
+        if not success:
+            return False
+            
+        zoom_classes = [c for c in classes if c.get('platform') == 'zoom']
+        meet_classes = [c for c in classes if c.get('platform') == 'google_meet']
+        
+        print(f"\n📊 Classes Verification:")
+        print(f"   Total classes: {len(classes)}")
+        print(f"   Zoom classes: {len(zoom_classes)}")
+        print(f"   Google Meet classes: {len(meet_classes)}")
+        
+        # Check unique Zoom links
+        zoom_links = [c.get('zoom_link') for c in zoom_classes if c.get('zoom_link')]
+        unique_zoom_links = set(zoom_links)
+        
+        print(f"   Zoom classes with links: {len(zoom_links)}")
+        print(f"   Unique Zoom links: {len(unique_zoom_links)}")
+        
+        if len(zoom_links) > 1 and len(unique_zoom_links) == len(zoom_links):
+            print("✅ Each Zoom class has unique meeting link")
+            return True
+        elif len(zoom_links) <= 1:
+            print("⚠️  Only one or no Zoom classes found")
+            return True
+        else:
+            print("❌ Zoom classes do not have unique links")
+            return False
+
+    def test_max_year_limit(self):
+        """Test 1 year limit enforcement"""
+        if not (self.student_id and self.teacher_id):
+            print("❌ Cannot test year limit - missing student/teacher IDs")
+            return False
+
+        start_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = (datetime.now() + timedelta(days=400)).strftime('%Y-%m-%d')  # Over 1 year
+        
+        bulk_data = {
+            "student_id": self.student_id,
+            "teacher_id": self.teacher_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "days_of_week": [1],
+            "time_slot": "10:00",
+            "duration": 60,
+            "platform": "google_meet",
+            "meet_link": "https://meet.google.com/test"
+        }
+
+        success, response = self.run_test(
+            "Year Limit Enforcement",
+            "POST",
+            "admin/classes/bulk",
+            400,  # Should fail with 400
+            data=bulk_data
+        )
+        
+        return success  # Success means it properly rejected the request
+
+    def test_zoom_bulk_scheduling_features(self):
+        """Test all Zoom bulk scheduling features"""
+        print("\n🔍 Testing Zoom Bulk Scheduling Features...")
+        
+        # Check Zoom status
+        zoom_connected = self.test_zoom_status()
+        
+        # Test bulk scheduling with Google Meet
+        if not self.test_bulk_schedule_google_meet():
+            return False
+        
+        # Test bulk scheduling with Zoom (if connected)
+        if not self.test_bulk_schedule_zoom(zoom_connected):
+            return False
+        
+        # Test single class with Zoom (if connected)
+        if not self.test_single_class_zoom(zoom_connected):
+            return False
+        
+        # Test year limit enforcement
+        if not self.test_max_year_limit():
+            return False
+        
+        # Verify classes were created correctly
+        if not self.verify_classes_created():
+            return False
+        
+        print("✅ All Zoom bulk scheduling features tested successfully")
+        return True
+
 def main():
     print("🚀 Starting Class Platform API Tests")
     print("="*60)
@@ -316,6 +534,7 @@ def main():
         ("Get Students", tester.test_get_students),
         ("Schedule Class", tester.test_schedule_class),
         ("Get Classes", tester.test_get_classes),
+        ("Zoom Bulk Scheduling Features", tester.test_zoom_bulk_scheduling_features),
         ("Teacher Functionality", tester.test_teacher_login_and_classes),
         ("Student Functionality", tester.test_student_login_and_dashboard),
         ("Join Class Protection", tester.test_join_class_without_auth),

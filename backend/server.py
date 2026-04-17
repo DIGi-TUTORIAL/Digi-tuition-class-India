@@ -451,7 +451,6 @@ async def update_class(class_id: str, req: UpdateClassRequest, user: dict = Depe
 async def bulk_schedule_classes(req: BulkScheduleRequest, user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
 
-    from datetime import date as date_type
     start = datetime.strptime(req.start_date, "%Y-%m-%d").date()
     end = datetime.strptime(req.end_date, "%Y-%m-%d").date()
 
@@ -459,36 +458,109 @@ async def bulk_schedule_classes(req: BulkScheduleRequest, user: dict = Depends(g
     if (end - start).days > 366:
         raise HTTPException(status_code=400, detail="Maximum 1 year per bulk operation")
 
+    # If Zoom selected, verify connection first
+    if req.platform == "zoom":
+        if not zoom_manager.is_configured():
+            raise HTTPException(status_code=400, detail="Zoom account not connected. Please connect before scheduling.")
+        conn = await zoom_manager.check_connection()
+        if not conn["connected"]:
+            raise HTTPException(status_code=400, detail=f"Zoom account not connected: {conn['error']}")
+
+    # Get student and teacher names for Zoom meeting topics
+    student_name = "Student"
+    teacher_name = "Teacher"
+    try:
+        student = await db.students.find_one({"_id": ObjectId(req.student_id)})
+        if student:
+            student_name = student.get("student_name", "Student")
+        teacher = await db.users.find_one({"_id": ObjectId(req.teacher_id)})
+        if teacher:
+            teacher_name = teacher.get("name", "Teacher")
+    except Exception:
+        pass
+
     series_id = secrets.token_urlsafe(16)
-    created_classes = []
+    class_entries = []
     current = start
 
     while current <= end:
-        # Check if current day matches selected days (0=Mon...6=Sun)
         if current.weekday() in req.days_of_week:
             dt_str = f"{current.isoformat()}T{req.time_slot}:00"
-            class_doc = {
-                "student_id": req.student_id,
-                "teacher_id": req.teacher_id,
-                "meet_link": req.meet_link or "",
-                "zoom_link": "",
-                "zoom_meeting_id": None,
-                "platform": req.platform,
+            class_entries.append({
                 "date_time": dt_str,
-                "duration": req.duration,
-                "course_id": req.course_id or "",
-                "status": "scheduled",
-                "series_id": series_id,
-                "created_at": datetime.now(timezone.utc)
-            }
-            created_classes.append(class_doc)
+                "index": len(class_entries)
+            })
         current += timedelta(days=1)
 
-    if not created_classes:
+    if not class_entries:
         raise HTTPException(status_code=400, detail="No classes to schedule with given parameters")
 
+    # For Zoom: batch create unique meetings per class
+    zoom_results = {}
+    if req.platform == "zoom":
+        meetings_to_create = []
+        for entry in class_entries:
+            meetings_to_create.append({
+                "topic": f"Class: {student_name} with {teacher_name}",
+                "start_time": entry["date_time"],
+                "duration": req.duration,
+                "index": entry["index"]
+            })
+
+        logger.info(f"Creating {len(meetings_to_create)} Zoom meetings for bulk schedule...")
+        results = await zoom_manager.create_meetings_batch(meetings_to_create, batch_size=8)
+
+        failed_count = 0
+        for r in results:
+            idx = r.get("index", 0)
+            if r.get("success"):
+                zoom_results[idx] = {
+                    "zoom_link": r.get("join_url", ""),
+                    "zoom_meeting_id": r.get("meeting_id"),
+                    "zoom_passcode": r.get("password", "")
+                }
+            else:
+                failed_count += 1
+                logger.error(f"Failed to create Zoom meeting for class {idx}: {r.get('error')}")
+
+        if failed_count > 0:
+            logger.warning(f"{failed_count}/{len(meetings_to_create)} Zoom meetings failed to create")
+
+    # Build class documents
+    created_classes = []
+    for entry in class_entries:
+        idx = entry["index"]
+        zoom_data = zoom_results.get(idx, {})
+        class_doc = {
+            "student_id": req.student_id,
+            "teacher_id": req.teacher_id,
+            "meet_link": req.meet_link or "",
+            "zoom_link": zoom_data.get("zoom_link", ""),
+            "zoom_meeting_id": zoom_data.get("zoom_meeting_id"),
+            "zoom_passcode": zoom_data.get("zoom_passcode", ""),
+            "platform": req.platform,
+            "date_time": entry["date_time"],
+            "duration": req.duration,
+            "course_id": req.course_id or "",
+            "status": "scheduled",
+            "series_id": series_id,
+            "created_at": datetime.now(timezone.utc)
+        }
+        created_classes.append(class_doc)
+
     await db.classes.insert_many(created_classes)
-    return {"message": f"{len(created_classes)} classes scheduled", "count": len(created_classes), "series_id": series_id}
+
+    zoom_success = len(zoom_results) if req.platform == "zoom" else 0
+    zoom_failed = len(class_entries) - zoom_success if req.platform == "zoom" else 0
+
+    return {
+        "message": f"{len(created_classes)} classes scheduled",
+        "count": len(created_classes),
+        "series_id": series_id,
+        "platform": req.platform,
+        "zoom_meetings_created": zoom_success,
+        "zoom_meetings_failed": zoom_failed
+    }
 
 # =================== ADMIN - NOTIFICATIONS ===================
 @api_router.get("/admin/notifications")
@@ -702,16 +774,10 @@ async def get_payments(user: dict = Depends(get_current_user)):
 @api_router.get("/admin/zoom-status")
 async def get_zoom_status(user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
-    configured = zoom_manager.is_configured()
-    connected = False
-    error_msg = ""
-    if configured:
-        try:
-            await zoom_manager.get_access_token()
-            connected = True
-        except Exception as e:
-            error_msg = str(e)
-    return {"configured": configured, "connected": connected, "error": error_msg}
+    if not zoom_manager.is_configured():
+        return {"configured": False, "connected": False, "error": "Not configured"}
+    result = await zoom_manager.check_connection()
+    return {"configured": True, "connected": result["connected"], "error": result["error"]}
 
 # =================== TEACHER ENDPOINTS ===================
 @api_router.get("/teacher/classes")

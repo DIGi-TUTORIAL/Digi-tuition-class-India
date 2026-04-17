@@ -1,8 +1,9 @@
 import httpx
 import os
 import logging
+import asyncio
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,16 @@ class ZoomTokenManager:
             self.token_expiry = datetime.now() + timedelta(seconds=expires_in - 60)
             logger.info("Obtained new Zoom access token")
 
+    async def check_connection(self) -> dict:
+        """Check if Zoom is actually connected and working."""
+        if not self.is_configured():
+            return {"connected": False, "error": "Zoom credentials not configured"}
+        try:
+            await self.get_access_token()
+            return {"connected": True, "error": ""}
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
+
     async def create_meeting(self, topic: str, start_time: str, duration: int = 60) -> dict:
         if not self.is_configured():
             raise Exception("Zoom API not configured")
@@ -55,7 +66,6 @@ class ZoomTokenManager:
             "Content-Type": "application/json"
         }
 
-        # Format start_time for Zoom API (strip milliseconds)
         try:
             dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
             formatted_time = dt.strftime('%Y-%m-%dT%H:%M:%S')
@@ -96,5 +106,52 @@ class ZoomTokenManager:
                 "password": data.get("password"),
                 "topic": data.get("topic")
             }
+
+    async def create_meetings_batch(self, meetings: List[dict], batch_size: int = 10) -> List[dict]:
+        """
+        Create multiple Zoom meetings with batching and retry logic.
+        Each meeting dict: {"topic": str, "start_time": str, "duration": int}
+        Returns list of results (success or error per meeting).
+        Zoom rate limit: ~30 req/sec for heavy, we use batch_size=10 with 1s delay.
+        """
+        if not self.is_configured():
+            raise Exception("Zoom API not configured")
+
+        results = []
+        total = len(meetings)
+        logger.info(f"Creating {total} Zoom meetings in batches of {batch_size}")
+
+        for i in range(0, total, batch_size):
+            batch = meetings[i:i + batch_size]
+            batch_results = await asyncio.gather(
+                *[self._create_meeting_with_retry(m) for m in batch],
+                return_exceptions=False
+            )
+            results.extend(batch_results)
+            # Rate limit delay between batches
+            if i + batch_size < total:
+                await asyncio.sleep(1.5)
+            logger.info(f"Batch {i // batch_size + 1}: {len(batch)} meetings processed ({i + len(batch)}/{total})")
+
+        return results
+
+    async def _create_meeting_with_retry(self, meeting: dict, max_retries: int = 3) -> dict:
+        """Create a single meeting with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                result = await self.create_meeting(
+                    topic=meeting["topic"],
+                    start_time=meeting["start_time"],
+                    duration=meeting.get("duration", 60)
+                )
+                return {"success": True, "index": meeting.get("index", 0), **result}
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait = (attempt + 1) * 2
+                    logger.warning(f"Zoom meeting creation failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"Zoom meeting creation failed after {max_retries} attempts: {e}")
+                    return {"success": False, "index": meeting.get("index", 0), "error": str(e)}
 
 zoom_manager = ZoomTokenManager()

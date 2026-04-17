@@ -105,7 +105,7 @@ const AdminDashboard = () => {
   const fetchCourses = async () => { try { const { data } = await ax('/api/admin/courses'); setCourses(data); } catch (e) {} };
   const fetchPayments = async () => { try { const { data } = await ax('/api/admin/payments'); setPayments(data); } catch (e) {} };
   const fetchNotifications = async () => { try { const { data } = await ax('/api/admin/notifications'); setNotifications(data); } catch (e) {} };
-  const checkZoom = async () => { try { const { data } = await ax('/api/admin/zoom-status'); setZoomConfigured(data.configured); } catch (e) {} };
+  const checkZoom = async () => { try { const { data } = await ax('/api/admin/zoom-status'); setZoomConfigured(data.connected); } catch (e) {} };
 
   const handleCreateTeacher = async (e) => {
     e.preventDefault();
@@ -139,15 +139,25 @@ const AdminDashboard = () => {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
+  const [bulkLoading, setBulkLoading] = useState(false);
+
   const handleBulkSchedule = async (e) => {
     e.preventDefault();
     if (bulkDays.length === 0) { toast.error('Select at least one day'); return; }
+    if (bulkPlatform === 'zoom' && !zoomConfigured) { toast.error('Zoom account not connected. Please connect before scheduling.'); return; }
+    setBulkLoading(true);
     try {
-      const { data } = await ax('/api/admin/classes/bulk', { method: 'POST', data: { student_id: bulkStudent, teacher_id: bulkTeacher, start_date: bulkStartDate, end_date: bulkEndDate, days_of_week: bulkDays.map(Number), time_slot: bulkTime, duration: parseInt(bulkDuration), platform: bulkPlatform, meet_link: bulkMeetLink || undefined, course_id: bulkCourse || undefined } });
-      toast.success(`${data.count} classes scheduled!`);
-      setShowBulkDialog(false); setBulkStudent(''); setBulkTeacher(''); setBulkStartDate(''); setBulkEndDate(''); setBulkDays([]); setBulkTime('10:00'); setBulkDuration('60'); setBulkMeetLink(''); setBulkCourse('');
+      const { data } = await ax('/api/admin/classes/bulk', { method: 'POST', data: { student_id: bulkStudent, teacher_id: bulkTeacher, start_date: bulkStartDate, end_date: bulkEndDate, days_of_week: bulkDays.map(Number), time_slot: bulkTime, duration: parseInt(bulkDuration), platform: bulkPlatform, meet_link: bulkPlatform === 'google_meet' ? (bulkMeetLink || undefined) : undefined, course_id: bulkCourse || undefined } });
+      let msg = `${data.count} classes scheduled!`;
+      if (data.platform === 'zoom') {
+        msg += ` Zoom meetings created: ${data.zoom_meetings_created}`;
+        if (data.zoom_meetings_failed > 0) msg += ` (${data.zoom_meetings_failed} failed)`;
+      }
+      toast.success(msg);
+      setShowBulkDialog(false); setBulkStudent(''); setBulkTeacher(''); setBulkStartDate(''); setBulkEndDate(''); setBulkDays([]); setBulkTime('10:00'); setBulkDuration('60'); setBulkPlatform('google_meet'); setBulkMeetLink(''); setBulkCourse('');
       fetchClasses(); fetchStats();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setBulkLoading(false);
   };
 
   const handleCreateCourse = async (e) => { e.preventDefault(); try { await ax('/api/admin/courses', { method: 'POST', data: { name: courseName, subject: courseSubject, description: courseDesc } }); toast.success('Course created'); setShowCourseDialog(false); setCourseName(''); setCourseSubject(''); setCourseDesc(''); fetchCourses(); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); } };
@@ -354,8 +364,21 @@ const AdminDashboard = () => {
                   <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
                     <DialogTrigger asChild><Button variant="outline" className="border-[#5B21B6] text-[#5B21B6] flex items-center gap-2" data-testid="bulk-schedule-button"><CalendarPlus size={16} /> Bulk Schedule</Button></DialogTrigger>
                     <DialogContent className="max-w-lg">
-                      <DialogHeader><DialogTitle>Bulk Recurring Schedule</DialogTitle><DialogDescription>Auto-create classes for selected days. Max 1 year.</DialogDescription></DialogHeader>
+                      <DialogHeader><DialogTitle>Bulk Recurring Schedule</DialogTitle><DialogDescription>Auto-create classes for selected days. Max 1 year. Each Zoom class gets a unique meeting link.</DialogDescription></DialogHeader>
                       <form onSubmit={handleBulkSchedule} className="space-y-4">
+                        <div>
+                          <Label>Platform</Label>
+                          <select value={bulkPlatform} onChange={e => setBulkPlatform(e.target.value)} className="w-full border border-gray-200 rounded-md p-2" data-testid="bulk-platform-select">
+                            <option value="google_meet">Google Meet (paste link)</option>
+                            <option value="zoom" disabled={!zoomConfigured}>Zoom (auto-create per class) {!zoomConfigured ? '- Not Connected' : ''}</option>
+                          </select>
+                          {bulkPlatform === 'zoom' && zoomConfigured && (
+                            <p className="text-xs text-green-600 mt-1 flex items-center gap-1"><Video size={12} /> Each class will get a unique Zoom meeting link</p>
+                          )}
+                          {bulkPlatform === 'zoom' && !zoomConfigured && (
+                            <p className="text-xs text-red-600 mt-1">Zoom account not connected. Please connect before scheduling.</p>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                           <div><Label>Student</Label><select value={bulkStudent} onChange={e => setBulkStudent(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2" data-testid="bulk-student-select"><option value="">Choose...</option>{students.map(s => <option key={s._id} value={s._id}>{s.student_name}</option>)}</select></div>
                           <div><Label>Teacher</Label><select value={bulkTeacher} onChange={e => setBulkTeacher(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2" data-testid="bulk-teacher-select"><option value="">Choose...</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
@@ -374,8 +397,12 @@ const AdminDashboard = () => {
                           <div><Label>Time Slot</Label><Input type="time" value={bulkTime} onChange={e => setBulkTime(e.target.value)} required data-testid="bulk-time" /></div>
                           <div><Label>Duration (min)</Label><Input type="number" value={bulkDuration} onChange={e => setBulkDuration(e.target.value)} /></div>
                         </div>
-                        <div><Label>Meet Link (optional)</Label><Input type="url" value={bulkMeetLink} onChange={e => setBulkMeetLink(e.target.value)} placeholder="Google Meet link for all classes" data-testid="bulk-meet-link" /></div>
-                        <Button type="submit" className="w-full bg-[#5B21B6] hover:bg-[#4C1D95]" data-testid="bulk-submit-button">Create Recurring Classes</Button>
+                        {bulkPlatform === 'google_meet' && (
+                          <div><Label>Google Meet Link (shared for all)</Label><Input type="url" value={bulkMeetLink} onChange={e => setBulkMeetLink(e.target.value)} placeholder="Paste Google Meet link" data-testid="bulk-meet-link" /></div>
+                        )}
+                        <Button type="submit" disabled={bulkLoading} className="w-full bg-[#5B21B6] hover:bg-[#4C1D95]" data-testid="bulk-submit-button">
+                          {bulkLoading ? (bulkPlatform === 'zoom' ? 'Creating Zoom meetings...' : 'Scheduling...') : 'Create Recurring Classes'}
+                        </Button>
                       </form>
                     </DialogContent>
                   </Dialog>
