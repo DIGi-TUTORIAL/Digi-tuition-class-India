@@ -40,6 +40,12 @@ const AdminDashboard = () => {
   // Teacher form
   const [teacherName, setTeacherName] = useState('');
   const [teacherEmail, setTeacherEmail] = useState('');
+  const [teacherPhone, setTeacherPhone] = useState('');
+  const [teacherQual, setTeacherQual] = useState('');
+  const [teacherExp, setTeacherExp] = useState('0');
+  const [teacherDOJ, setTeacherDOJ] = useState('');
+  const [teacherLevels, setTeacherLevels] = useState([]);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [teacherRate, setTeacherRate] = useState('0');
   const [paymentMode, setPaymentMode] = useState('cycle');
   const [cycleSize, setCycleSize] = useState('8');
@@ -51,15 +57,27 @@ const AdminDashboard = () => {
   const [contactNumber, setContactNumber] = useState('');
   const [gmailId, setGmailId] = useState('');
   const [totalClasses, setTotalClasses] = useState('');
+  const [studentGrade, setStudentGrade] = useState('');
+  const [studentBoard, setStudentBoard] = useState('');
+  const [studentDOA, setStudentDOA] = useState('');
+  const [studentSubjects, setStudentSubjects] = useState([]);
 
   // Single class form
   const [selectedStudent, setSelectedStudent] = useState('');
+  const [selectedStudents, setSelectedStudents] = useState([]);
   const [selectedTeacher, setSelectedTeacher] = useState('');
   const [meetLink, setMeetLink] = useState('');
   const [dateTime, setDateTime] = useState('');
   const [classDuration, setClassDuration] = useState('60');
   const [classPlatform, setClassPlatform] = useState('google_meet');
   const [classCourse, setClassCourse] = useState('');
+  const [classType, setClassType] = useState('individual');
+  const [classSubject, setClassSubject] = useState('');
+  const [recordingLink, setRecordingLink] = useState('');
+
+  // Edit states
+  const [editDialog, setEditDialog] = useState(null); // {type: 'teacher'|'student'|'class', data: {...}}
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   // Bulk schedule form
   const [bulkStudent, setBulkStudent] = useState('');
@@ -111,9 +129,9 @@ const AdminDashboard = () => {
   const handleCreateTeacher = async (e) => {
     e.preventDefault();
     try {
-      const { data } = await ax('/api/admin/teachers', { method: 'POST', data: { name: teacherName, email: teacherEmail, hourly_rate: parseFloat(teacherRate) || 0, payment_mode: paymentMode, cycle_size: parseInt(cycleSize) || 8, cycle_amount: parseFloat(cycleAmount) || 0 } });
-      toast.success(`Teacher created! Temp password: ${data.temp_password}`);
-      setShowTeacherDialog(false); setTeacherName(''); setTeacherEmail(''); setTeacherRate('0'); setPaymentMode('cycle'); setCycleSize('8'); setCycleAmount('0');
+      const { data } = await ax('/api/admin/teachers', { method: 'POST', data: { name: teacherName, email: teacherEmail, phone: teacherPhone, qualification: teacherQual, experience: parseInt(teacherExp) || 0, date_of_joining: teacherDOJ, teaching_levels: teacherLevels, subjects: teacherSubjects, hourly_rate: parseFloat(teacherRate) || 0, payment_mode: paymentMode, cycle_size: parseInt(cycleSize) || 8, cycle_amount: parseFloat(cycleAmount) || 0 } });
+      toast.success(`Teacher created! Credentials emailed. Temp password: ${data.temp_password}`);
+      setShowTeacherDialog(false); setTeacherName(''); setTeacherEmail(''); setTeacherPhone(''); setTeacherQual(''); setTeacherExp('0'); setTeacherDOJ(''); setTeacherLevels([]); setTeacherSubjects([]); setTeacherRate('0'); setPaymentMode('cycle'); setCycleSize('8'); setCycleAmount('0');
       fetchTeachers(); fetchStats();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
@@ -122,9 +140,9 @@ const AdminDashboard = () => {
     e.preventDefault();
     if (!studentName || !parentName || !contactNumber || !gmailId || !totalClasses) { toast.error('All fields mandatory'); return; }
     try {
-      const { data } = await ax('/api/admin/students', { method: 'POST', data: { student_name: studentName, parent_name: parentName, contact_number: contactNumber, gmail_id: gmailId, total_classes: parseInt(totalClasses) } });
-      toast.success(`Student enrolled! Temp password: ${data.temp_password}`);
-      setShowStudentDialog(false); setStudentName(''); setParentName(''); setContactNumber(''); setGmailId(''); setTotalClasses('');
+      const { data } = await ax('/api/admin/students', { method: 'POST', data: { student_name: studentName, parent_name: parentName, contact_number: contactNumber, gmail_id: gmailId, total_classes: parseInt(totalClasses), grade: studentGrade, board: studentBoard, date_of_admission: studentDOA, subjects: studentSubjects } });
+      toast.success(`Student enrolled! Credentials emailed. Temp password: ${data.temp_password}`);
+      setShowStudentDialog(false); setStudentName(''); setParentName(''); setContactNumber(''); setGmailId(''); setTotalClasses(''); setStudentGrade(''); setStudentBoard(''); setStudentDOA(''); setStudentSubjects([]);
       fetchStudents(); fetchStats();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
@@ -132,11 +150,30 @@ const AdminDashboard = () => {
   const handleScheduleClass = async (e) => {
     e.preventDefault();
     try {
-      const payload = { student_id: selectedStudent, teacher_id: selectedTeacher, date_time: dateTime, duration: parseInt(classDuration), platform: classPlatform, course_id: classCourse || undefined };
+      const payload = { teacher_id: selectedTeacher, date_time: dateTime, duration: parseInt(classDuration), platform: classPlatform, course_id: classCourse || undefined, class_type: classType, subject: classSubject, recording_link: recordingLink };
+      if (classType === 'group') { payload.student_ids = selectedStudents; }
+      else { payload.student_id = selectedStudent; }
       if (classPlatform === 'google_meet') payload.meet_link = meetLink;
       await ax('/api/admin/classes', { method: 'POST', data: payload });
-      toast.success('Class scheduled'); setShowClassDialog(false); setSelectedStudent(''); setSelectedTeacher(''); setMeetLink(''); setDateTime(''); setClassDuration('60'); setClassPlatform('google_meet'); setClassCourse('');
+      toast.success('Class scheduled'); setShowClassDialog(false); setSelectedStudent(''); setSelectedStudents([]); setSelectedTeacher(''); setMeetLink(''); setDateTime(''); setClassDuration('60'); setClassPlatform('google_meet'); setClassCourse(''); setClassType('individual'); setClassSubject(''); setRecordingLink('');
       fetchClasses(); fetchStats();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  // Edit/Delete handlers
+  const handleDeleteClass = async (id) => {
+    try { await ax(`/api/admin/classes/${id}`, { method: 'DELETE' }); toast.success('Class deleted'); fetchClasses(); fetchStats(); setDeleteConfirm(null); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+  const handleDeleteTeacher = async (id) => {
+    try { await ax(`/api/admin/teachers/${id}`, { method: 'DELETE' }); toast.success('Teacher deleted'); fetchTeachers(); fetchStats(); setDeleteConfirm(null); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+  const handleSaveEdit = async () => {
+    if (!editDialog) return;
+    try {
+      if (editDialog.type === 'teacher') await ax(`/api/admin/teachers/${editDialog.data._id}`, { method: 'PUT', data: editDialog.data });
+      else if (editDialog.type === 'student') await ax(`/api/admin/students/${editDialog.data._id}`, { method: 'PUT', data: editDialog.data });
+      else if (editDialog.type === 'class') await ax(`/api/admin/classes/${editDialog.data._id}`, { method: 'PATCH', data: editDialog.data });
+      toast.success('Updated'); setEditDialog(null); fetchAll();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
@@ -318,8 +355,15 @@ const AdminDashboard = () => {
                     <form onSubmit={handleCreateStudent} className="space-y-4">
                       <div><Label>Student Name *</Label><Input value={studentName} onChange={e => setStudentName(e.target.value)} required data-testid="student-name-input" /></div>
                       <div><Label>Parent's Name *</Label><Input value={parentName} onChange={e => setParentName(e.target.value)} required data-testid="parent-name-input" /></div>
-                      <div><Label>Contact Number *</Label><Input value={contactNumber} onChange={e => setContactNumber(e.target.value)} required data-testid="contact-number-input" /></div>
-                      <div><Label>Gmail ID *</Label><Input type="email" value={gmailId} onChange={e => setGmailId(e.target.value)} required data-testid="gmail-id-input" /></div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div><Label>Contact Number *</Label><Input value={contactNumber} onChange={e => setContactNumber(e.target.value)} required data-testid="contact-number-input" /></div>
+                        <div><Label>Gmail ID *</Label><Input type="email" value={gmailId} onChange={e => setGmailId(e.target.value)} required data-testid="gmail-id-input" /></div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div><Label>Grade</Label><select value={studentGrade} onChange={e => setStudentGrade(e.target.value)} className="w-full border border-gray-200 rounded-md p-2 text-sm" data-testid="student-grade-select"><option value="">Select...</option>{['Nursery','LKG','UKG',...Array.from({length:12},(_,i)=>`Class ${i+1}`),'Other'].map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                        <div><Label>Board</Label><select value={studentBoard} onChange={e => setStudentBoard(e.target.value)} className="w-full border border-gray-200 rounded-md p-2 text-sm" data-testid="student-board-select"><option value="">Select...</option>{['ICSE','CBSE','IB','IGCSE','ICSE+IGCSE','IB+IGCSE','Mixed','Other'].map(b=><option key={b} value={b}>{b}</option>)}</select></div>
+                        <div><Label>Date of Admission</Label><Input type="date" value={studentDOA} onChange={e => setStudentDOA(e.target.value)} data-testid="student-doa-input" /></div>
+                      </div>
                       <div><Label>Total Classes *</Label><Input type="number" value={totalClasses} onChange={e => setTotalClasses(e.target.value)} required data-testid="total-classes-input" /></div>
                       <Button type="submit" className="w-full bg-[#5B21B6] hover:bg-[#4C1D95]" data-testid="student-submit-button">Enroll Student</Button>
                     </form>
@@ -346,18 +390,27 @@ const AdminDashboard = () => {
                   <Dialog open={showClassDialog} onOpenChange={setShowClassDialog}>
                     <DialogTrigger asChild><Button className="bg-[#5B21B6] hover:bg-[#4C1D95] text-white" data-testid="schedule-class-button">+ Single Class</Button></DialogTrigger>
                     <DialogContent className="max-w-lg">
-                      <DialogHeader><DialogTitle>Schedule Single Class</DialogTitle><DialogDescription>Choose Google Meet or Zoom.</DialogDescription></DialogHeader>
+                      <DialogHeader><DialogTitle>Schedule Class</DialogTitle><DialogDescription>Individual or group class with Google Meet or Zoom.</DialogDescription></DialogHeader>
                       <form onSubmit={handleScheduleClass} className="space-y-4">
-                        <div><Label>Platform</Label><select value={classPlatform} onChange={e => setClassPlatform(e.target.value)} className="w-full border border-gray-200 rounded-md p-2" data-testid="platform-select"><option value="google_meet">Google Meet</option>{zoomConfigured && <option value="zoom">Zoom (auto)</option>}</select></div>
                         <div className="grid grid-cols-2 gap-4">
-                          <div><Label>Student</Label><select value={selectedStudent} onChange={e => setSelectedStudent(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2" data-testid="student-select"><option value="">Choose...</option>{students.map(s => <option key={s._id} value={s._id}>{s.student_name}</option>)}</select></div>
+                          <div><Label>Class Type</Label><select value={classType} onChange={e => setClassType(e.target.value)} className="w-full border border-gray-200 rounded-md p-2" data-testid="class-type-select"><option value="individual">Individual</option><option value="group">Group</option></select></div>
+                          <div><Label>Platform</Label><select value={classPlatform} onChange={e => setClassPlatform(e.target.value)} className="w-full border border-gray-200 rounded-md p-2" data-testid="platform-select"><option value="google_meet">Google Meet</option>{zoomConfigured && <option value="zoom">Zoom (auto)</option>}</select></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          {classType === 'individual' ? (
+                            <div><Label>Student</Label><select value={selectedStudent} onChange={e => setSelectedStudent(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2" data-testid="student-select"><option value="">Choose...</option>{students.map(s => <option key={s._id} value={s._id}>{s.student_name}</option>)}</select></div>
+                          ) : (
+                            <div><Label>Students (multi-select)</Label><select multiple value={selectedStudents} onChange={e => setSelectedStudents([...e.target.selectedOptions].map(o => o.value))} required className="w-full border border-gray-200 rounded-md p-2 h-20" data-testid="students-multi-select">{students.map(s => <option key={s._id} value={s._id}>{s.student_name}</option>)}</select></div>
+                          )}
                           <div><Label>Teacher</Label><select value={selectedTeacher} onChange={e => setSelectedTeacher(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2" data-testid="teacher-select"><option value="">Choose...</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
                         </div>
+                        <div><Label>Subject</Label><Input value={classSubject} onChange={e => setClassSubject(e.target.value)} placeholder="e.g. Math, Science..." data-testid="class-subject-input" /></div>
                         {classPlatform === 'google_meet' && <div><Label>Meet Link</Label><Input type="url" value={meetLink} onChange={e => setMeetLink(e.target.value)} required data-testid="meet-link-input" /></div>}
                         <div className="grid grid-cols-2 gap-4">
                           <div><Label>Date & Time</Label><Input type="datetime-local" value={dateTime} onChange={e => setDateTime(e.target.value)} required data-testid="date-time-input" /></div>
                           <div><Label>Duration (min)</Label><Input type="number" value={classDuration} onChange={e => setClassDuration(e.target.value)} /></div>
                         </div>
+                        <div><Label>Recording Link (optional)</Label><Input value={recordingLink} onChange={e => setRecordingLink(e.target.value)} placeholder="Zoom recording URL" data-testid="recording-link-input" /></div>
                         <Button type="submit" className="w-full bg-[#5B21B6] hover:bg-[#4C1D95]" data-testid="class-submit-button">Schedule</Button>
                       </form>
                     </DialogContent>
@@ -412,12 +465,18 @@ const AdminDashboard = () => {
               </div>
               <div className="border border-gray-200 rounded-md">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>Teacher</TableHead><TableHead>Date & Time</TableHead><TableHead>Platform</TableHead><TableHead>Link</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>Teacher</TableHead><TableHead>Subject</TableHead><TableHead>Date & Time</TableHead><TableHead>Type</TableHead><TableHead>Platform</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{classes.map(cls => (
-                    <TableRow key={cls._id}><TableCell>{cls.student_name}</TableCell><TableCell>{cls.teacher_name}</TableCell><TableCell>{new Date(cls.date_time).toLocaleString()}</TableCell>
+                    <TableRow key={cls._id}><TableCell>{cls.student_name}</TableCell><TableCell>{cls.teacher_name}</TableCell><TableCell>{cls.subject || '-'}</TableCell><TableCell>{new Date(cls.date_time).toLocaleString()}</TableCell>
+                      <TableCell><span className={`px-2 py-1 rounded-sm text-xs ${cls.class_type === 'group' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{cls.class_type || 'individual'}</span></TableCell>
                       <TableCell><span className={`px-2 py-1 rounded-sm text-xs ${cls.platform === 'zoom' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{cls.platform === 'zoom' ? 'Zoom' : 'Meet'}</span></TableCell>
-                      <TableCell><a href={cls.zoom_link || cls.meet_link} target="_blank" rel="noopener noreferrer" className="text-[#5B21B6] hover:underline text-sm">Join</a></TableCell>
                       <TableCell><span className={`px-2 py-1 rounded-sm text-xs ${cls.status === 'completed' ? 'bg-green-100 text-green-700' : cls.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' : 'bg-purple-100 text-purple-700'}`}>{cls.status}</span></TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <button onClick={() => setEditDialog({ type: 'class', data: { _id: cls._id, date_time: cls.date_time, meet_link: cls.meet_link || '', recording_link: cls.recording_link || '', subject: cls.subject || '', status: cls.status } })} className="text-xs text-[#5B21B6] hover:underline" data-testid={`edit-class-${cls._id}`}>Edit</button>
+                          <button onClick={() => setDeleteConfirm({ type: 'class', id: cls._id, name: `class on ${new Date(cls.date_time).toLocaleDateString()}` })} className="text-xs text-red-600 hover:underline" data-testid={`delete-class-${cls._id}`}>Delete</button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}</TableBody>
                 </Table>
@@ -526,6 +585,52 @@ const AdminDashboard = () => {
         <footer className="border-t border-gray-200 bg-white py-3 px-8 text-center">
           <p className="text-xs text-gray-400">DIGI TUTORIAL CLASSES - Online Learning Platform</p>
         </footer>
+
+        {/* Edit Dialog */}
+        {editDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditDialog(null)}>
+            <Card className="w-full max-w-md p-6 bg-white border rounded-md shadow-lg" onClick={e => e.stopPropagation()} data-testid="edit-dialog">
+              <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: 'Outfit' }}>Edit {editDialog.type}</h3>
+              <div className="space-y-3">
+                {editDialog.type === 'class' && <>
+                  <div><Label>Date & Time</Label><Input type="datetime-local" value={editDialog.data.date_time || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, date_time: e.target.value}}))} /></div>
+                  <div><Label>Subject</Label><Input value={editDialog.data.subject || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, subject: e.target.value}}))} /></div>
+                  <div><Label>Meet Link</Label><Input value={editDialog.data.meet_link || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, meet_link: e.target.value}}))} /></div>
+                  <div><Label>Recording Link</Label><Input value={editDialog.data.recording_link || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, recording_link: e.target.value}}))} /></div>
+                  <div><Label>Status</Label><select value={editDialog.data.status || 'scheduled'} onChange={e => setEditDialog(p => ({...p, data: {...p.data, status: e.target.value}}))} className="w-full border rounded-md p-2"><option value="scheduled">Scheduled</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+                </>}
+                {editDialog.type === 'teacher' && <>
+                  <div><Label>Name</Label><Input value={editDialog.data.name || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, name: e.target.value}}))} /></div>
+                  <div><Label>Phone</Label><Input value={editDialog.data.phone || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, phone: e.target.value}}))} /></div>
+                  <div><Label>Qualification</Label><Input value={editDialog.data.qualification || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, qualification: e.target.value}}))} /></div>
+                </>}
+                {editDialog.type === 'student' && <>
+                  <div><Label>Student Name</Label><Input value={editDialog.data.student_name || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, student_name: e.target.value}}))} /></div>
+                  <div><Label>Parent Name</Label><Input value={editDialog.data.parent_name || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, parent_name: e.target.value}}))} /></div>
+                  <div><Label>Contact</Label><Input value={editDialog.data.contact_number || ''} onChange={e => setEditDialog(p => ({...p, data: {...p.data, contact_number: e.target.value}}))} /></div>
+                </>}
+              </div>
+              <div className="flex gap-3 mt-6">
+                <Button onClick={handleSaveEdit} className="flex-1 bg-[#5B21B6] hover:bg-[#4C1D95] text-white" data-testid="edit-save-button">Save</Button>
+                <Button onClick={() => setEditDialog(null)} variant="outline" className="flex-1">Cancel</Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Delete Confirmation */}
+        {deleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setDeleteConfirm(null)}>
+            <Card className="w-full max-w-sm p-6 bg-white border rounded-md shadow-lg" onClick={e => e.stopPropagation()} data-testid="delete-confirm-dialog">
+              <h3 className="text-lg font-semibold mb-2">Confirm Delete</h3>
+              <p className="text-sm text-gray-600 mb-6">Are you sure you want to delete this {deleteConfirm.type}: <strong>{deleteConfirm.name}</strong>?</p>
+              <div className="flex gap-3">
+                <Button onClick={() => { if (deleteConfirm.type === 'class') handleDeleteClass(deleteConfirm.id); else if (deleteConfirm.type === 'teacher') handleDeleteTeacher(deleteConfirm.id); }} className="flex-1 bg-red-600 hover:bg-red-700 text-white" data-testid="delete-confirm-button">Delete</Button>
+                <Button onClick={() => setDeleteConfirm(null)} variant="outline" className="flex-1">Cancel</Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </main>
     </div>
   );

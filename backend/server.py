@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 import secrets
 from typing import List, Optional
 from zoom_service import zoom_manager
+from email_service import send_credentials_email, send_password_reset_email
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -100,6 +101,12 @@ class RegisterRequest(BaseModel):
 class CreateTeacherRequest(BaseModel):
     name: str
     email: EmailStr
+    phone: Optional[str] = ""
+    qualification: Optional[str] = ""
+    experience: Optional[int] = 0
+    date_of_joining: Optional[str] = ""
+    teaching_levels: List[str] = []
+    subjects: List[str] = []
     hourly_rate: float = 0.0
     payment_mode: str = "cycle"  # "cycle" or "per_class"
     cycle_size: int = 8
@@ -111,20 +118,41 @@ class CreateStudentRequest(BaseModel):
     contact_number: str
     gmail_id: EmailStr
     total_classes: int
+    grade: Optional[str] = ""
+    board: Optional[str] = ""
+    date_of_admission: Optional[str] = ""
+    subjects: List[str] = []
 
 class ScheduleClassRequest(BaseModel):
-    student_id: str
+    student_id: Optional[str] = None  # For individual classes
+    student_ids: Optional[List[str]] = None  # For group classes
     teacher_id: str
     meet_link: Optional[str] = None
     date_time: str
     duration: int = 60
     course_id: Optional[str] = None
-    platform: str = "google_meet"  # "google_meet" or "zoom"
+    platform: str = "google_meet"
+    class_type: str = "individual"  # "individual" or "group"
+    subject: Optional[str] = ""
+    recording_link: Optional[str] = ""
 
 class UpdateClassRequest(BaseModel):
     meet_link: Optional[str] = None
     date_time: Optional[str] = None
     status: Optional[str] = None
+    recording_link: Optional[str] = None
+    subject: Optional[str] = None
+
+class ChangePasswordRequest(BaseModel):
+    current_password: Optional[str] = None
+    new_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 class CreateCourseRequest(BaseModel):
     name: str
@@ -204,7 +232,7 @@ async def login(req: LoginRequest, response: Response):
     await db.login_attempts.delete_many({"identifier": identifier})
     user_id = str(user["_id"])
     set_auth_cookies(response, user_id, email)
-    return {"_id": user_id, "name": user["name"], "email": user["email"], "role": user["role"]}
+    return {"_id": user_id, "name": user["name"], "email": user["email"], "role": user["role"], "force_password_change": user.get("force_password_change", False)}
 
 @api_router.post("/auth/logout")
 async def logout(response: Response, user: dict = Depends(get_current_user)):
@@ -214,6 +242,10 @@ async def logout(response: Response, user: dict = Depends(get_current_user)):
 
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
+    full_user = await db.users.find_one({"_id": ObjectId(user["_id"])}, {"password_hash": 0})
+    if full_user:
+        full_user["_id"] = str(full_user["_id"])
+        return full_user
     return user
 
 @api_router.post("/auth/refresh")
@@ -237,6 +269,50 @@ async def refresh(request: Request, response: Response):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
+# =================== AUTH - PASSWORD MANAGEMENT ===================
+@api_router.post("/auth/change-password")
+async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    full_user = await db.users.find_one({"_id": ObjectId(user["_id"])})
+    if not full_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # If force change (first login), current_password is optional
+    if not full_user.get("force_password_change", False):
+        if not req.current_password:
+            raise HTTPException(status_code=400, detail="Current password required")
+        if not verify_password(req.current_password, full_user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    new_hash = hash_password(req.new_password)
+    await db.users.update_one({"_id": ObjectId(user["_id"])}, {"$set": {"password_hash": new_hash, "force_password_change": False}})
+    return {"message": "Password changed successfully"}
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        return {"message": "If the email exists, a reset link has been sent"}
+    reset_token = secrets.token_urlsafe(32)
+    await db.password_reset_tokens.insert_one({"token": reset_token, "user_id": str(user["_id"]), "used": False, "expires_at": datetime.now(timezone.utc) + timedelta(hours=1), "created_at": datetime.now(timezone.utc)})
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    send_password_reset_email(email, user.get("name", "User"), reset_token, frontend_url)
+    return {"message": "If the email exists, a reset link has been sent"}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    token_doc = await db.password_reset_tokens.find_one({"token": req.token, "used": False})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    if datetime.now(timezone.utc) > token_doc.get("expires_at", datetime.now(timezone.utc)):
+        raise HTTPException(status_code=400, detail="Token has expired")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    new_hash = hash_password(req.new_password)
+    await db.users.update_one({"_id": ObjectId(token_doc["user_id"])}, {"$set": {"password_hash": new_hash, "force_password_change": False}})
+    await db.password_reset_tokens.update_one({"_id": token_doc["_id"]}, {"$set": {"used": True}})
+    return {"message": "Password reset successfully"}
+
 # =================== ADMIN - TEACHERS ===================
 @api_router.post("/admin/teachers")
 async def create_teacher(req: CreateTeacherRequest, user: dict = Depends(get_current_user)):
@@ -247,8 +323,11 @@ async def create_teacher(req: CreateTeacherRequest, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Email already registered")
     temp_password = secrets.token_urlsafe(12)
     password_hash = hash_password(temp_password)
-    user_doc = {"name": req.name, "email": email, "password_hash": password_hash, "role": "teacher", "hourly_rate": req.hourly_rate, "payment_mode": req.payment_mode, "cycle_size": req.cycle_size, "cycle_amount": req.cycle_amount, "created_at": datetime.now(timezone.utc)}
+    user_doc = {"name": req.name, "email": email, "password_hash": password_hash, "role": "teacher", "phone": req.phone, "qualification": req.qualification, "experience": req.experience, "date_of_joining": req.date_of_joining, "teaching_levels": req.teaching_levels, "subjects": req.subjects, "hourly_rate": req.hourly_rate, "payment_mode": req.payment_mode, "cycle_size": req.cycle_size, "cycle_amount": req.cycle_amount, "force_password_change": True, "created_at": datetime.now(timezone.utc)}
     result = await db.users.insert_one(user_doc)
+    # Send credentials email
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    send_credentials_email(email, req.name, "Teacher", temp_password, f"{frontend_url}/login")
     return {"_id": str(result.inserted_id), "name": req.name, "email": email, "role": "teacher", "hourly_rate": req.hourly_rate, "payment_mode": req.payment_mode, "cycle_size": req.cycle_size, "cycle_amount": req.cycle_amount, "temp_password": temp_password}
 
 @api_router.get("/admin/teachers")
@@ -265,6 +344,26 @@ async def set_teacher_rate(teacher_id: str, req: SetTeacherRateRequest, user: di
     await db.users.update_one({"_id": ObjectId(teacher_id)}, {"$set": {"hourly_rate": req.hourly_rate}})
     return {"message": "Rate updated"}
 
+@api_router.put("/admin/teachers/{teacher_id}")
+async def update_teacher(teacher_id: str, request: Request, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    body = await request.json()
+    allowed = ["name", "phone", "qualification", "experience", "date_of_joining", "teaching_levels", "subjects", "hourly_rate", "payment_mode", "cycle_size", "cycle_amount"]
+    update = {k: body[k] for k in allowed if k in body}
+    if update:
+        await db.users.update_one({"_id": ObjectId(teacher_id)}, {"$set": update})
+    return {"message": "Teacher updated"}
+
+@api_router.delete("/admin/teachers/{teacher_id}")
+async def delete_teacher(teacher_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    # Check if teacher has future scheduled classes
+    future_classes = await db.classes.count_documents({"teacher_id": teacher_id, "status": "scheduled"})
+    if future_classes > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete: teacher has {future_classes} future scheduled classes. Remove those first.")
+    await db.users.delete_one({"_id": ObjectId(teacher_id)})
+    return {"message": "Teacher deleted"}
+
 # =================== ADMIN - STUDENTS ===================
 @api_router.post("/admin/students")
 async def create_student(req: CreateStudentRequest, user: dict = Depends(get_current_user)):
@@ -275,13 +374,16 @@ async def create_student(req: CreateStudentRequest, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Gmail ID already registered")
     temp_password = secrets.token_urlsafe(12)
     password_hash = hash_password(temp_password)
-    user_doc = {"name": req.student_name, "email": email, "password_hash": password_hash, "role": "student", "created_at": datetime.now(timezone.utc)}
+    user_doc = {"name": req.student_name, "email": email, "password_hash": password_hash, "role": "student", "force_password_change": True, "created_at": datetime.now(timezone.utc)}
     user_result = await db.users.insert_one(user_doc)
     user_id = str(user_result.inserted_id)
-    student_doc = {"user_id": user_id, "student_name": req.student_name, "parent_name": req.parent_name, "contact_number": req.contact_number, "gmail_id": email, "created_at": datetime.now(timezone.utc)}
+    student_doc = {"user_id": user_id, "student_name": req.student_name, "parent_name": req.parent_name, "contact_number": req.contact_number, "gmail_id": email, "grade": req.grade, "board": req.board, "date_of_admission": req.date_of_admission, "subjects": req.subjects, "created_at": datetime.now(timezone.utc)}
     student_result = await db.students.insert_one(student_doc)
     enrollment_doc = {"student_id": str(student_result.inserted_id), "total_classes": req.total_classes, "used_classes": 0, "remaining_classes": req.total_classes}
     await db.enrollments.insert_one(enrollment_doc)
+    # Send credentials email
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    send_credentials_email(email, req.student_name, "Student", temp_password, f"{frontend_url}/login")
     return {"_id": str(student_result.inserted_id), "user_id": user_id, "student_name": req.student_name, "parent_name": req.parent_name, "contact_number": req.contact_number, "gmail_id": email, "total_classes": req.total_classes, "temp_password": temp_password}
 
 @api_router.get("/admin/students")
@@ -298,6 +400,20 @@ async def get_students(user: dict = Depends(get_current_user)):
             s["remaining_classes"] = enrollment.get("remaining_classes", 0)
         result.append(s)
     return result
+
+@api_router.put("/admin/students/{student_id}")
+async def update_student(student_id: str, request: Request, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    body = await request.json()
+    allowed = ["student_name", "parent_name", "contact_number", "grade", "board", "date_of_admission", "subjects"]
+    update = {k: body[k] for k in allowed if k in body}
+    if update:
+        await db.students.update_one({"_id": ObjectId(student_id)}, {"$set": update})
+        if "student_name" in update:
+            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            if student:
+                await db.users.update_one({"_id": ObjectId(student.get("user_id"))}, {"$set": {"name": update["student_name"]}})
+    return {"message": "Student updated"}
 
 # =================== ADMIN - COURSES ===================
 @api_router.post("/admin/courses")
@@ -363,12 +479,21 @@ async def schedule_class(req: ScheduleClassRequest, user: dict = Depends(get_cur
     zoom_link = ""
     zoom_meeting_id = None
 
+    # Determine student IDs
+    sids = []
+    if req.class_type == "group" and req.student_ids:
+        sids = req.student_ids
+    elif req.student_id:
+        sids = [req.student_id]
+
+    if not sids:
+        raise HTTPException(status_code=400, detail="At least one student required")
+
     # Auto-create Zoom meeting if platform is zoom
     if req.platform == "zoom" and zoom_manager.is_configured():
         try:
-            student = await db.students.find_one({"_id": ObjectId(req.student_id)})
             teacher = await db.users.find_one({"_id": ObjectId(req.teacher_id)})
-            topic = f"Class: {student.get('student_name', 'Student')} with {teacher.get('name', 'Teacher')}"
+            topic = f"Class with {teacher.get('name', 'Teacher')}"
             zoom_data = await zoom_manager.create_meeting(topic=topic, start_time=req.date_time, duration=req.duration)
             zoom_link = zoom_data.get("join_url", "")
             zoom_meeting_id = zoom_data.get("meeting_id")
@@ -377,7 +502,8 @@ async def schedule_class(req: ScheduleClassRequest, user: dict = Depends(get_cur
             raise HTTPException(status_code=500, detail=f"Failed to create Zoom meeting: {str(e)}")
 
     class_doc = {
-        "student_id": req.student_id,
+        "student_id": sids[0] if len(sids) == 1 else "",
+        "student_ids": sids if req.class_type == "group" else [],
         "teacher_id": req.teacher_id,
         "meet_link": meet_link,
         "zoom_link": zoom_link,
@@ -386,6 +512,9 @@ async def schedule_class(req: ScheduleClassRequest, user: dict = Depends(get_cur
         "date_time": req.date_time,
         "duration": req.duration,
         "course_id": req.course_id or "",
+        "class_type": req.class_type,
+        "subject": req.subject or "",
+        "recording_link": req.recording_link or "",
         "status": "scheduled",
         "created_at": datetime.now(timezone.utc)
     }
@@ -393,41 +522,42 @@ async def schedule_class(req: ScheduleClassRequest, user: dict = Depends(get_cur
 
     return {
         "_id": str(result.inserted_id),
-        "student_id": req.student_id,
+        "student_ids": sids,
         "teacher_id": req.teacher_id,
         "meet_link": meet_link,
         "zoom_link": zoom_link,
         "platform": req.platform,
         "date_time": req.date_time,
-        "duration": req.duration,
+        "class_type": req.class_type,
         "status": "scheduled"
     }
 
 @api_router.get("/admin/classes")
 async def get_all_classes(user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
-    classes = await db.classes.find({}).to_list(1000)
+    classes = await db.classes.find({}).sort("created_at", -1).to_list(1000)
     result = []
     for c in classes:
         c["_id"] = str(c["_id"])
-        try:
-            student = await db.students.find_one({"_id": ObjectId(c["student_id"])})
-            if student:
-                c["student_name"] = student.get("student_name")
-        except Exception:
-            pass
+        # Handle group classes
+        if c.get("class_type") == "group" and c.get("student_ids"):
+            names = []
+            for sid in c["student_ids"]:
+                try:
+                    s = await db.students.find_one({"_id": ObjectId(sid)})
+                    if s: names.append(s.get("student_name", ""))
+                except Exception: pass
+            c["student_name"] = ", ".join(names) if names else ""
+        elif c.get("student_id"):
+            try:
+                student = await db.students.find_one({"_id": ObjectId(c["student_id"])})
+                if student: c["student_name"] = student.get("student_name")
+            except Exception: pass
         try:
             teacher = await db.users.find_one({"_id": ObjectId(c["teacher_id"])})
-            if teacher:
-                c["teacher_name"] = teacher.get("name")
-        except Exception:
-            pass
-        # Get attendance info
-        att_logs = await db.attendance_logs.find({"class_id": c["_id"]}).to_list(10)
-        c["attendance"] = []
-        for a in att_logs:
-            a["_id"] = str(a["_id"])
-            c["attendance"].append(a)
+            if teacher: c["teacher_name"] = teacher.get("name")
+        except Exception: pass
+        # Hide recording_link from response if needed (will filter in teacher endpoint)
         result.append(c)
     return result
 
@@ -441,10 +571,20 @@ async def update_class(class_id: str, req: UpdateClassRequest, user: dict = Depe
         update_fields["date_time"] = req.date_time
     if req.status is not None:
         update_fields["status"] = req.status
+    if req.recording_link is not None:
+        update_fields["recording_link"] = req.recording_link
+    if req.subject is not None:
+        update_fields["subject"] = req.subject
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     await db.classes.update_one({"_id": ObjectId(class_id)}, {"$set": update_fields})
     return {"message": "Class updated successfully"}
+
+@api_router.delete("/admin/classes/{class_id}")
+async def delete_class(class_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    await db.classes.delete_one({"_id": ObjectId(class_id)})
+    return {"message": "Class deleted"}
 
 # =================== ADMIN - REGENERATE ZOOM LINK ===================
 @api_router.post("/admin/classes/{class_id}/regenerate-zoom")
@@ -834,17 +974,17 @@ async def get_zoom_status(user: dict = Depends(get_current_user)):
 @api_router.get("/teacher/classes")
 async def get_teacher_classes(user: dict = Depends(get_current_user)):
     await require_role(user, ["teacher"])
-    classes = await db.classes.find({"teacher_id": user["_id"]}).to_list(1000)
+    classes = await db.classes.find({"teacher_id": user["_id"]}).sort("created_at", -1).to_list(1000)
     result = []
     for c in classes:
         c["_id"] = str(c["_id"])
+        c.pop("recording_link", None)  # Teachers cannot see recording links
         try:
-            student = await db.students.find_one({"_id": ObjectId(c["student_id"])})
+            student = await db.students.find_one({"_id": ObjectId(c.get("student_id", ""))})
             if student:
                 c["student_name"] = student.get("student_name")
         except Exception:
             pass
-        # Check if teacher has active attendance
         att = await db.attendance_logs.find_one({"class_id": c["_id"], "user_id": user["_id"], "role": "teacher", "leave_time": None})
         c["is_joined"] = att is not None
         result.append(c)

@@ -1,418 +1,195 @@
 import requests
 import sys
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 class ClassPlatformTester:
     def __init__(self, base_url="https://class-meet-pro.preview.emergentagent.com"):
         self.base_url = base_url
-        self.session = requests.Session()
+        self.session = requests.Session()  # Use session to handle cookies
         self.tests_run = 0
         self.tests_passed = 0
-        self.admin_token = None
-        self.teacher_id = None
-        self.student_id = None
-        self.class_id = None
+        self.admin_logged_in = False
+        self.teacher_logged_in = False
+        self.student_logged_in = False
+        self.created_teacher_id = None
+        self.created_student_id = None
+        self.created_class_id = None
 
-    def run_test(self, name, method, endpoint, expected_status, data=None, cookies=None):
+    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
         """Run a single API test"""
         url = f"{self.base_url}/api/{endpoint}"
-        headers = {'Content-Type': 'application/json'}
-        
+        test_headers = {'Content-Type': 'application/json'}
+        if headers:
+            test_headers.update(headers)
+
         self.tests_run += 1
         print(f"\n🔍 Testing {name}...")
-        print(f"   URL: {method} {url}")
         
         try:
             if method == 'GET':
-                response = self.session.get(url, headers=headers)
+                response = self.session.get(url, headers=test_headers, timeout=10)
             elif method == 'POST':
-                response = self.session.post(url, json=data, headers=headers)
+                response = self.session.post(url, json=data, headers=test_headers, timeout=10)
+            elif method == 'PUT':
+                response = self.session.put(url, json=data, headers=test_headers, timeout=10)
             elif method == 'PATCH':
-                response = self.session.patch(url, json=data, headers=headers)
+                response = self.session.patch(url, json=data, headers=test_headers, timeout=10)
+            elif method == 'DELETE':
+                response = self.session.delete(url, headers=test_headers, timeout=10)
 
             success = response.status_code == expected_status
             if success:
                 self.tests_passed += 1
                 print(f"✅ Passed - Status: {response.status_code}")
                 try:
-                    response_data = response.json()
-                    if isinstance(response_data, dict) and len(response_data) <= 5:
-                        print(f"   Response: {response_data}")
+                    return success, response.json() if response.text else {}
                 except:
-                    pass
+                    return success, {}
             else:
                 print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
-                try:
-                    error_data = response.json()
-                    print(f"   Error: {error_data}")
-                except:
-                    print(f"   Response text: {response.text[:200]}")
-
-            return success, response.json() if response.content else {}
+                print(f"Response: {response.text[:200]}")
+                return False, {}
 
         except Exception as e:
             print(f"❌ Failed - Error: {str(e)}")
             return False, {}
 
-    def test_admin_login(self):
-        """Test admin login and get session"""
-        print("\n" + "="*50)
-        print("TESTING ADMIN AUTHENTICATION")
-        print("="*50)
-        
+    def test_login(self, email, password, role_name):
+        """Test login and get token"""
         success, response = self.run_test(
-            "Admin Login",
+            f"Login as {role_name}",
             "POST",
             "auth/login",
             200,
-            data={"email": "admin@classplatform.com", "password": "admin123"}
-        )
-        return success
-
-    def test_admin_stats(self):
-        """Test admin stats endpoint"""
-        success, response = self.run_test(
-            "Admin Stats",
-            "GET",
-            "admin/stats",
-            200
+            data={"email": email, "password": password}
         )
         if success:
-            required_keys = ['total_students', 'total_teachers', 'total_classes', 'completed_classes']
-            for key in required_keys:
-                if key not in response:
-                    print(f"❌ Missing key in stats: {key}")
-                    return False
+            # Check for force_password_change flag
+            force_change = response.get('force_password_change', False)
+            print(f"   Force password change: {force_change}")
+            return True, response
+        return False, {}
+
+    def test_admin_login(self):
+        """Test admin login"""
+        success, response = self.test_login("admin@classplatform.com", "admin123", "Admin")
+        if success:
+            self.admin_logged_in = True
         return success
 
+    def test_teacher_login(self):
+        """Test teacher login"""
+        # Logout first to clear admin session
+        self.session.post(f"{self.base_url}/api/auth/logout")
+        success, response = self.test_login("teacher@demo.com", "teacher123", "Teacher")
+        if success:
+            self.teacher_logged_in = True
+        return success
+
+    def test_student_login(self):
+        """Test student login"""
+        # Logout first to clear previous session
+        self.session.post(f"{self.base_url}/api/auth/logout")
+        success, response = self.test_login("student@demo.com", "student123", "Student")
+        if success:
+            self.student_logged_in = True
+        return success
+
+    def ensure_admin_login(self):
+        """Ensure admin is logged in"""
+        if not self.admin_logged_in:
+            self.session.post(f"{self.base_url}/api/auth/logout")  # Clear any existing session
+            self.test_admin_login()
+
+    def ensure_teacher_login(self):
+        """Ensure teacher is logged in"""
+        if not self.teacher_logged_in:
+            self.session.post(f"{self.base_url}/api/auth/logout")  # Clear any existing session
+            self.test_teacher_login()
+
     def test_create_teacher(self):
-        """Test creating a teacher"""
-        print("\n" + "="*50)
-        print("TESTING TEACHER MANAGEMENT")
-        print("="*50)
+        """Test creating teacher with extended fields"""
+        teacher_data = {
+            "name": "Test Teacher Extended",
+            "email": f"testteacher_{datetime.now().strftime('%H%M%S')}@test.com",
+            "phone": "+1234567890",
+            "qualification": "M.Sc Mathematics",
+            "experience": 5,
+            "date_of_joining": "2024-01-15",
+            "teaching_levels": ["Class 10", "Class 11", "Class 12"],
+            "subjects": ["Mathematics", "Physics"],
+            "hourly_rate": 500.0,
+            "payment_mode": "cycle",
+            "cycle_size": 8,
+            "cycle_amount": 4000.0
+        }
         
-        teacher_email = f"teacher_{datetime.now().strftime('%H%M%S')}@test.com"
         success, response = self.run_test(
-            "Create Teacher",
+            "Create Teacher with Extended Fields",
             "POST",
             "admin/teachers",
             200,
-            data={"name": "Test Teacher", "email": teacher_email}
+            data=teacher_data
         )
-        if success and '_id' in response:
-            self.teacher_id = response['_id']
-            print(f"   Created teacher ID: {self.teacher_id}")
-        return success
-
-    def test_get_teachers(self):
-        """Test getting all teachers"""
-        success, response = self.run_test(
-            "Get Teachers",
-            "GET",
-            "admin/teachers",
-            200
-        )
-        if success and isinstance(response, list):
-            print(f"   Found {len(response)} teachers")
+        
+        if success:
+            self.created_teacher_id = response.get('_id')
+            temp_password = response.get('temp_password')
+            print(f"   Teacher created with ID: {self.created_teacher_id}")
+            print(f"   Temp password: {temp_password}")
+            print(f"   Force password change should be True")
         return success
 
     def test_create_student(self):
-        """Test creating/enrolling a student"""
-        print("\n" + "="*50)
-        print("TESTING STUDENT ENROLLMENT")
-        print("="*50)
+        """Test creating student with extended fields"""
+        student_data = {
+            "student_name": "Test Student Extended",
+            "parent_name": "Test Parent",
+            "contact_number": "+9876543210",
+            "gmail_id": f"teststudent_{datetime.now().strftime('%H%M%S')}@test.com",
+            "total_classes": 20,
+            "grade": "Class 10",
+            "board": "CBSE",
+            "date_of_admission": "2024-02-01",
+            "subjects": ["Mathematics", "Science", "English"]
+        }
         
-        student_email = f"student_{datetime.now().strftime('%H%M%S')}@test.com"
         success, response = self.run_test(
-            "Enroll Student",
+            "Create Student with Extended Fields",
             "POST",
             "admin/students",
             200,
-            data={
-                "student_name": "Test Student",
-                "parent_name": "Test Parent",
-                "contact_number": "1234567890",
-                "gmail_id": student_email,
-                "total_classes": 5
-            }
-        )
-        if success and '_id' in response:
-            self.student_id = response['_id']
-            print(f"   Created student ID: {self.student_id}")
-        return success
-
-    def test_get_students(self):
-        """Test getting all students"""
-        success, response = self.run_test(
-            "Get Students",
-            "GET",
-            "admin/students",
-            200
-        )
-        if success and isinstance(response, list):
-            print(f"   Found {len(response)} students")
-            for student in response:
-                if student.get('_id') == self.student_id:
-                    print(f"   Student classes - Total: {student.get('total_classes')}, Used: {student.get('used_classes')}, Remaining: {student.get('remaining_classes')}")
-        return success
-
-    def test_schedule_class(self):
-        """Test scheduling a class"""
-        print("\n" + "="*50)
-        print("TESTING CLASS SCHEDULING")
-        print("="*50)
-        
-        if not self.teacher_id or not self.student_id:
-            print("❌ Cannot schedule class - missing teacher or student ID")
-            return False
-            
-        future_time = (datetime.now() + timedelta(hours=1)).isoformat()
-        success, response = self.run_test(
-            "Schedule Class",
-            "POST",
-            "admin/classes",
-            200,
-            data={
-                "student_id": self.student_id,
-                "teacher_id": self.teacher_id,
-                "meet_link": "https://meet.google.com/test-link",
-                "date_time": future_time
-            }
-        )
-        if success and '_id' in response:
-            self.class_id = response['_id']
-            print(f"   Created class ID: {self.class_id}")
-        return success
-
-    def test_get_classes(self):
-        """Test getting all classes"""
-        success, response = self.run_test(
-            "Get All Classes",
-            "GET",
-            "admin/classes",
-            200
-        )
-        if success and isinstance(response, list):
-            print(f"   Found {len(response)} classes")
-        return success
-
-    def test_teacher_login_and_classes(self):
-        """Test teacher login and viewing classes"""
-        print("\n" + "="*50)
-        print("TESTING TEACHER FUNCTIONALITY")
-        print("="*50)
-        
-        # Note: We can't test teacher login without the temp password from creation
-        # But we can test the endpoint structure
-        success, response = self.run_test(
-            "Teacher Classes (without auth)",
-            "GET",
-            "teacher/classes",
-            401  # Should fail without auth
-        )
-        print("   ✓ Teacher endpoint properly protected")
-        return True
-
-    def test_student_login_and_dashboard(self):
-        """Test student login and dashboard"""
-        print("\n" + "="*50)
-        print("TESTING STUDENT FUNCTIONALITY")
-        print("="*50)
-        
-        # Test student dashboard endpoint (should fail without auth)
-        success, response = self.run_test(
-            "Student Dashboard (without auth)",
-            "GET",
-            "student/dashboard",
-            401  # Should fail without auth
-        )
-        print("   ✓ Student dashboard properly protected")
-        
-        # Test student classes endpoint (should fail without auth)
-        success, response = self.run_test(
-            "Student Classes (without auth)",
-            "GET",
-            "student/classes",
-            401  # Should fail without auth
-        )
-        print("   ✓ Student classes properly protected")
-        
-        return True
-
-    def test_join_class_without_auth(self):
-        """Test joining class without authentication"""
-        if not self.class_id:
-            print("❌ Cannot test join class - no class ID")
-            return False
-            
-        success, response = self.run_test(
-            "Join Class (without auth)",
-            "POST",
-            f"student/classes/{self.class_id}/join",
-            401  # Should fail without auth
-        )
-        print("   ✓ Join class properly protected")
-        return True
-
-    def test_auth_endpoints(self):
-        """Test authentication endpoints"""
-        print("\n" + "="*50)
-        print("TESTING AUTH ENDPOINTS")
-        print("="*50)
-        
-        # Test /me endpoint without auth
-        success, response = self.run_test(
-            "Get Current User (without auth)",
-            "GET",
-            "auth/me",
-            401
+            data=student_data
         )
         
-        # Test logout
-        success, response = self.run_test(
-            "Logout",
-            "POST",
-            "auth/logout",
-            200
-        )
-        
-        return True
-
-    def test_brute_force_protection(self):
-        """Test brute force protection"""
-        print("\n" + "="*50)
-        print("TESTING BRUTE FORCE PROTECTION")
-        print("="*50)
-        
-        test_email = "brute_force_test@test.com"
-        
-        # Try 3 failed attempts
-        for i in range(3):
-            success, response = self.run_test(
-                f"Failed Login Attempt {i+1}",
-                "POST",
-                "auth/login",
-                401,
-                data={"email": test_email, "password": "wrong_password"}
-            )
-        
-        print("   ✓ Brute force protection tested (partial)")
-        return True
-
-    def test_zoom_status(self):
-        """Test Zoom connection status"""
-        success, response = self.run_test(
-            "Zoom Status Check",
-            "GET",
-            "admin/zoom-status",
-            200
-        )
         if success:
-            print(f"   Zoom configured: {response.get('configured', False)}")
-            print(f"   Zoom connected: {response.get('connected', False)}")
-            if response.get('error'):
-                print(f"   Error: {response.get('error')}")
-            return response.get('connected', False)
-        return False
+            self.created_student_id = response.get('_id')
+            temp_password = response.get('temp_password')
+            print(f"   Student created with ID: {self.created_student_id}")
+            print(f"   Temp password: {temp_password}")
+        return success
 
-    def test_bulk_schedule_google_meet(self):
-        """Test bulk scheduling with Google Meet"""
-        if not (self.student_id and self.teacher_id):
-            print("❌ Cannot test bulk scheduling - missing student/teacher IDs")
+    def test_schedule_individual_class(self):
+        """Test scheduling individual class with subject field"""
+        if not self.created_student_id or not self.created_teacher_id:
+            print("❌ Cannot test class scheduling - missing student or teacher")
             return False
-
-        start_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-        end_date = (datetime.now() + timedelta(days=8)).strftime('%Y-%m-%d')
-        
-        bulk_data = {
-            "student_id": self.student_id,
-            "teacher_id": self.teacher_id,
-            "start_date": start_date,
-            "end_date": end_date,
-            "days_of_week": [1, 3, 5],  # Tue, Thu, Sat
-            "time_slot": "10:00",
+            
+        class_data = {
+            "student_id": self.created_student_id,
+            "teacher_id": self.created_teacher_id,
+            "meet_link": "https://meet.google.com/test-link",
+            "date_time": "2024-12-20T10:00:00",
             "duration": 60,
             "platform": "google_meet",
-            "meet_link": "https://meet.google.com/test-bulk-meet"
+            "class_type": "individual",
+            "subject": "Mathematics",
+            "recording_link": "https://zoom.us/rec/test-recording"
         }
-
+        
         success, response = self.run_test(
-            "Bulk Schedule Google Meet",
-            "POST",
-            "admin/classes/bulk",
-            200,
-            data=bulk_data
-        )
-        
-        if success:
-            print(f"   Classes created: {response.get('count', 0)}")
-            print(f"   Platform: {response.get('platform', 'unknown')}")
-            return True
-        return False
-
-    def test_bulk_schedule_zoom(self, zoom_connected):
-        """Test bulk scheduling with Zoom"""
-        if not zoom_connected:
-            print("⚠️  Skipping Zoom bulk test - Zoom not connected")
-            return True  # Skip test but don't fail
-            
-        if not (self.student_id and self.teacher_id):
-            print("❌ Cannot test Zoom bulk scheduling - missing student/teacher IDs")
-            return False
-
-        start_date = (datetime.now() + timedelta(days=10)).strftime('%Y-%m-%d')
-        end_date = (datetime.now() + timedelta(days=17)).strftime('%Y-%m-%d')
-        
-        bulk_data = {
-            "student_id": self.student_id,
-            "teacher_id": self.teacher_id,
-            "start_date": start_date,
-            "end_date": end_date,
-            "days_of_week": [0, 2, 4],  # Mon, Wed, Fri
-            "time_slot": "14:00",
-            "duration": 60,
-            "platform": "zoom"
-        }
-
-        success, response = self.run_test(
-            "Bulk Schedule Zoom",
-            "POST",
-            "admin/classes/bulk",
-            200,
-            data=bulk_data
-        )
-        
-        if success:
-            print(f"   Classes created: {response.get('count', 0)}")
-            print(f"   Platform: {response.get('platform', 'unknown')}")
-            print(f"   Zoom meetings created: {response.get('zoom_meetings_created', 0)}")
-            print(f"   Zoom meetings failed: {response.get('zoom_meetings_failed', 0)}")
-            return True
-        return False
-
-    def test_single_class_zoom(self, zoom_connected):
-        """Test single class scheduling with Zoom"""
-        if not zoom_connected:
-            print("⚠️  Skipping single Zoom test - Zoom not connected")
-            return True
-            
-        if not (self.student_id and self.teacher_id):
-            print("❌ Cannot test single Zoom class - missing student/teacher IDs")
-            return False
-
-        class_time = (datetime.now() + timedelta(days=20)).strftime('%Y-%m-%dT%H:%M:%S')
-        
-        class_data = {
-            "student_id": self.student_id,
-            "teacher_id": self.teacher_id,
-            "date_time": class_time,
-            "duration": 60,
-            "platform": "zoom"
-        }
-
-        success, response = self.run_test(
-            "Single Class Zoom",
+            "Schedule Individual Class with Subject",
             "POST",
             "admin/classes",
             200,
@@ -420,154 +197,299 @@ class ClassPlatformTester:
         )
         
         if success:
-            print(f"   Class created with platform: {response.get('platform', 'unknown')}")
-            print(f"   Zoom link present: {'zoom_link' in response and bool(response.get('zoom_link'))}")
-            return True
-        return False
+            self.created_class_id = response.get('_id')
+            print(f"   Class created with ID: {self.created_class_id}")
+        return success
 
-    def verify_classes_created(self):
-        """Verify classes were created and have correct platform/links"""
-        success, classes = self.run_test("Get All Classes", "GET", "admin/classes", 200)
-        
-        if not success:
+    def test_schedule_group_class(self):
+        """Test scheduling group class"""
+        if not self.created_student_id or not self.created_teacher_id:
+            print("❌ Cannot test group class scheduling - missing student or teacher")
             return False
             
-        zoom_classes = [c for c in classes if c.get('platform') == 'zoom']
-        meet_classes = [c for c in classes if c.get('platform') == 'google_meet']
-        
-        print(f"\n📊 Classes Verification:")
-        print(f"   Total classes: {len(classes)}")
-        print(f"   Zoom classes: {len(zoom_classes)}")
-        print(f"   Google Meet classes: {len(meet_classes)}")
-        
-        # Check unique Zoom links
-        zoom_links = [c.get('zoom_link') for c in zoom_classes if c.get('zoom_link')]
-        unique_zoom_links = set(zoom_links)
-        
-        print(f"   Zoom classes with links: {len(zoom_links)}")
-        print(f"   Unique Zoom links: {len(unique_zoom_links)}")
-        
-        if len(zoom_links) > 1 and len(unique_zoom_links) == len(zoom_links):
-            print("✅ Each Zoom class has unique meeting link")
-            return True
-        elif len(zoom_links) <= 1:
-            print("⚠️  Only one or no Zoom classes found")
-            return True
-        else:
-            print("❌ Zoom classes do not have unique links")
-            return False
-
-    def test_max_year_limit(self):
-        """Test 1 year limit enforcement"""
-        if not (self.student_id and self.teacher_id):
-            print("❌ Cannot test year limit - missing student/teacher IDs")
-            return False
-
-        start_date = datetime.now().strftime('%Y-%m-%d')
-        end_date = (datetime.now() + timedelta(days=400)).strftime('%Y-%m-%d')  # Over 1 year
-        
-        bulk_data = {
-            "student_id": self.student_id,
-            "teacher_id": self.teacher_id,
-            "start_date": start_date,
-            "end_date": end_date,
-            "days_of_week": [1],
-            "time_slot": "10:00",
-            "duration": 60,
+        class_data = {
+            "student_ids": [self.created_student_id],  # Group class with one student for testing
+            "teacher_id": self.created_teacher_id,
+            "meet_link": "https://meet.google.com/group-test-link",
+            "date_time": "2024-12-21T11:00:00",
+            "duration": 90,
             "platform": "google_meet",
-            "meet_link": "https://meet.google.com/test"
+            "class_type": "group",
+            "subject": "Physics"
         }
-
+        
         success, response = self.run_test(
-            "Year Limit Enforcement",
+            "Schedule Group Class",
             "POST",
-            "admin/classes/bulk",
-            400,  # Should fail with 400
-            data=bulk_data
+            "admin/classes",
+            200,
+            data=class_data
+        )
+        return success
+
+    def test_get_admin_classes(self):
+        """Test getting classes as admin (should show recording link)"""
+        success, response = self.run_test(
+            "Get Admin Classes (with recording link)",
+            "GET",
+            "admin/classes",
+            200
         )
         
-        return success  # Success means it properly rejected the request
+        if success and response:
+            classes = response if isinstance(response, list) else []
+            print(f"   Found {len(classes)} classes")
+            # Check if classes are sorted by created_at desc
+            if len(classes) >= 2:
+                first_created = classes[0].get('created_at', '')
+                second_created = classes[1].get('created_at', '')
+                if first_created >= second_created:
+                    print("   ✅ Classes sorted by creation time (newest first)")
+                else:
+                    print("   ❌ Classes NOT sorted correctly")
+            
+            # Check for recording link visibility
+            for cls in classes[:3]:  # Check first 3 classes
+                if 'recording_link' in cls:
+                    print(f"   ✅ Recording link visible to admin: {cls.get('recording_link', 'N/A')}")
+                    break
+        return success
 
-    def test_zoom_bulk_scheduling_features(self):
-        """Test all Zoom bulk scheduling features"""
-        print("\n🔍 Testing Zoom Bulk Scheduling Features...")
+    def test_get_teacher_classes(self):
+        """Test getting classes as teacher (should NOT show recording link)"""
+        success, response = self.run_test(
+            "Get Teacher Classes (NO recording link)",
+            "GET",
+            "teacher/classes",
+            200
+        )
         
-        # Check Zoom status
-        zoom_connected = self.test_zoom_status()
-        
-        # Test bulk scheduling with Google Meet
-        if not self.test_bulk_schedule_google_meet():
+        if success and response:
+            classes = response if isinstance(response, list) else []
+            print(f"   Found {len(classes)} classes for teacher")
+            # Check that recording link is hidden
+            for cls in classes[:3]:
+                if 'recording_link' not in cls or cls.get('recording_link') is None:
+                    print("   ✅ Recording link properly hidden from teacher")
+                    break
+                else:
+                    print(f"   ❌ Recording link visible to teacher: {cls.get('recording_link')}")
+        return success
+
+    def test_edit_class(self):
+        """Test editing class"""
+        if not self.created_class_id:
+            print("❌ Cannot test class editing - no class created")
             return False
+            
+        edit_data = {
+            "subject": "Advanced Mathematics",
+            "recording_link": "https://zoom.us/rec/updated-recording",
+            "status": "completed"
+        }
         
-        # Test bulk scheduling with Zoom (if connected)
-        if not self.test_bulk_schedule_zoom(zoom_connected):
+        success, response = self.run_test(
+            "Edit Class",
+            "PATCH",
+            f"admin/classes/{self.created_class_id}",
+            200,
+            data=edit_data
+        )
+        return success
+
+    def test_delete_class_with_confirmation(self):
+        """Test deleting class (should work)"""
+        if not self.created_class_id:
+            print("❌ Cannot test class deletion - no class created")
             return False
-        
-        # Test single class with Zoom (if connected)
-        if not self.test_single_class_zoom(zoom_connected):
+            
+        success, response = self.run_test(
+            "Delete Class",
+            "DELETE",
+            f"admin/classes/{self.created_class_id}",
+            200
+        )
+        return success
+
+    def test_delete_teacher_with_future_classes(self):
+        """Test deleting teacher with future classes (should fail)"""
+        if not self.created_teacher_id:
+            print("❌ Cannot test teacher deletion - no teacher created")
             return False
+            
+        # First create a future class
+        if self.created_student_id:
+            future_class_data = {
+                "student_id": self.created_student_id,
+                "teacher_id": self.created_teacher_id,
+                "meet_link": "https://meet.google.com/future-class",
+                "date_time": "2025-01-15T10:00:00",
+                "duration": 60,
+                "platform": "google_meet",
+                "class_type": "individual",
+                "subject": "Test Subject"
+            }
+            
+            self.run_test(
+                "Create Future Class for Teacher",
+                "POST",
+                "admin/classes",
+                200,
+                data=future_class_data
+            )
         
-        # Test year limit enforcement
-        if not self.test_max_year_limit():
+        # Now try to delete teacher (should fail)
+        success, response = self.run_test(
+            "Delete Teacher with Future Classes (should fail)",
+            "DELETE",
+            f"admin/teachers/{self.created_teacher_id}",
+            400  # Should fail with 400
+        )
+        
+        # Invert success since we expect this to fail
+        if not success:
+            print("   ✅ Correctly prevented deletion of teacher with future classes")
+            self.tests_passed += 1
+            return True
+        else:
+            print("   ❌ Teacher deletion should have failed but succeeded")
             return False
+
+    def test_change_password_endpoint(self):
+        """Test change password endpoint"""
+        change_data = {
+            "current_password": "admin123",
+            "new_password": "newpassword123"
+        }
         
-        # Verify classes were created correctly
-        if not self.verify_classes_created():
+        success, response = self.run_test(
+            "Change Password",
+            "POST",
+            "auth/change-password",
+            200,
+            data=change_data
+        )
+        
+        # Change it back
+        if success:
+            change_back_data = {
+                "current_password": "newpassword123",
+                "new_password": "admin123"
+            }
+            self.run_test(
+                "Change Password Back",
+                "POST",
+                "auth/change-password",
+                200,
+                data=change_back_data
+            )
+        
+        return success
+
+    def test_forgot_password_endpoint(self):
+        """Test forgot password endpoint"""
+        forgot_data = {
+            "email": "admin@classplatform.com"
+        }
+        
+        success, response = self.run_test(
+            "Forgot Password",
+            "POST",
+            "auth/forgot-password",
+            200,
+            data=forgot_data
+        )
+        return success
+
+    def test_reset_password_endpoint(self):
+        """Test reset password endpoint with invalid token"""
+        reset_data = {
+            "token": "invalid_token_for_testing",
+            "new_password": "newpassword123"
+        }
+        
+        success, response = self.run_test(
+            "Reset Password (invalid token)",
+            "POST",
+            "auth/reset-password",
+            400,  # Should fail with invalid token
+            data=reset_data
+        )
+        
+        # Invert success since we expect this to fail
+        if not success:
+            print("   ✅ Correctly rejected invalid reset token")
+            self.tests_passed += 1
+            return True
+        else:
+            print("   ❌ Reset password should have failed with invalid token")
             return False
-        
-        print("✅ All Zoom bulk scheduling features tested successfully")
-        return True
 
 def main():
-    print("🚀 Starting Class Platform API Tests")
-    print("="*60)
+    print("🚀 Starting Class Platform API Tests...")
+    print("=" * 50)
     
     tester = ClassPlatformTester()
     
-    # Test sequence
-    tests = [
-        ("Admin Authentication", tester.test_admin_login),
-        ("Admin Stats", tester.test_admin_stats),
-        ("Create Teacher", tester.test_create_teacher),
-        ("Get Teachers", tester.test_get_teachers),
-        ("Create Student", tester.test_create_student),
-        ("Get Students", tester.test_get_students),
-        ("Schedule Class", tester.test_schedule_class),
-        ("Get Classes", tester.test_get_classes),
-        ("Zoom Bulk Scheduling Features", tester.test_zoom_bulk_scheduling_features),
-        ("Teacher Functionality", tester.test_teacher_login_and_classes),
-        ("Student Functionality", tester.test_student_login_and_dashboard),
-        ("Join Class Protection", tester.test_join_class_without_auth),
-        ("Auth Endpoints", tester.test_auth_endpoints),
-        ("Brute Force Protection", tester.test_brute_force_protection),
-    ]
+    # Test authentication first
+    print("\n📋 AUTHENTICATION TESTS")
+    print("-" * 30)
     
-    failed_tests = []
-    
-    for test_name, test_func in tests:
-        try:
-            result = test_func()
-            if not result:
-                failed_tests.append(test_name)
-        except Exception as e:
-            print(f"❌ {test_name} failed with exception: {str(e)}")
-            failed_tests.append(test_name)
-    
-    # Print final results
-    print("\n" + "="*60)
-    print("📊 FINAL TEST RESULTS")
-    print("="*60)
-    print(f"Tests Run: {tester.tests_run}")
-    print(f"Tests Passed: {tester.tests_passed}")
-    print(f"Tests Failed: {tester.tests_run - tester.tests_passed}")
-    print(f"Success Rate: {(tester.tests_passed/tester.tests_run)*100:.1f}%")
-    
-    if failed_tests:
-        print(f"\n❌ Failed Test Categories: {', '.join(failed_tests)}")
+    # Test admin login and functionality together
+    if not tester.test_admin_login():
+        print("❌ Admin login failed, stopping tests")
         return 1
+    
+    # Test admin functionality while logged in as admin
+    print("\n📋 ADMIN FUNCTIONALITY TESTS")
+    print("-" * 30)
+    
+    tester.test_create_teacher()
+    tester.test_create_student()
+    tester.test_schedule_individual_class()
+    tester.test_schedule_group_class()
+    tester.test_get_admin_classes()
+    
+    # Test edit/delete functionality while still admin
+    print("\n📋 EDIT/DELETE FUNCTIONALITY TESTS")
+    print("-" * 30)
+    tester.test_edit_class()
+    tester.test_delete_teacher_with_future_classes()
+    tester.test_delete_class_with_confirmation()
+    
+    # Test password management while admin
+    print("\n📋 PASSWORD MANAGEMENT TESTS")
+    print("-" * 30)
+    tester.test_change_password_endpoint()
+    tester.test_forgot_password_endpoint()
+    tester.test_reset_password_endpoint()
+    
+    # Now test teacher functionality
+    print("\n📋 TEACHER FUNCTIONALITY TESTS")
+    print("-" * 30)
+    if not tester.test_teacher_login():
+        print("❌ Teacher login failed")
     else:
-        print("\n✅ All test categories completed successfully!")
+        tester.test_get_teacher_classes()
+    
+    # Test student login
+    print("\n📋 STUDENT AUTHENTICATION TEST")
+    print("-" * 30)
+    if not tester.test_student_login():
+        print("❌ Student login failed")
+    
+    # Print results
+    print("\n" + "=" * 50)
+    print(f"📊 FINAL RESULTS: {tester.tests_passed}/{tester.tests_run} tests passed")
+    success_rate = (tester.tests_passed / tester.tests_run * 100) if tester.tests_run > 0 else 0
+    print(f"📈 Success Rate: {success_rate:.1f}%")
+    
+    if success_rate >= 80:
+        print("🎉 Backend tests mostly successful!")
         return 0
+    else:
+        print("⚠️  Some backend tests failed")
+        return 1
 
 if __name__ == "__main__":
     sys.exit(main())

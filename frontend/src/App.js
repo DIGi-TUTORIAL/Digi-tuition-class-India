@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
 import StudentDashboard from './pages/StudentDashboard';
+import { ChangePassword, ResetPassword } from './pages/PasswordPages';
 
 const RootRedirect = () => {
   const { user, loading } = useAuth();
@@ -37,6 +38,12 @@ function App() {
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/change-password" element={
+            <ProtectedRoute allowedRoles={['admin', 'teacher', 'student']}>
+              <ChangePassword />
+            </ProtectedRoute>
+          } />
           <Route
             path="/admin"
             element={
