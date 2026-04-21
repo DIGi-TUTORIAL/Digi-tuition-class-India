@@ -9,16 +9,22 @@ def send_email(to: str, subject: str, html_content: str) -> bool:
     api_key = os.environ.get("SENDGRID_API_KEY", "")
     sender = os.environ.get("SENDER_EMAIL", "")
     if not api_key or not sender:
-        logger.warning("SendGrid not configured, skipping email")
+        logger.warning(f"SendGrid not configured - API key present: {bool(api_key)}, Sender: '{sender}'")
         return False
     try:
+        logger.info(f"Sending email to {to} from {sender} - Subject: {subject}")
         message = Mail(from_email=sender, to_emails=to, subject=subject, html_content=html_content)
         sg = SendGridAPIClient(api_key)
         response = sg.send(message)
         logger.info(f"Email sent to {to}: status={response.status_code}")
-        return response.status_code == 202
+        if response.status_code == 202:
+            return True
+        logger.warning(f"Unexpected SendGrid status {response.status_code} for {to}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to send email to {to}: {e}")
+        error_body = getattr(e, 'body', '')
+        error_status = getattr(e, 'status_code', '')
+        logger.error(f"Failed to send email to {to}: {type(e).__name__}: {e} | status={error_status} | body={error_body}")
         return False
 
 def send_credentials_email(to: str, name: str, role: str, password: str, login_url: str) -> bool:
