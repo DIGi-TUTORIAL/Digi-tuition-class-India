@@ -6,20 +6,24 @@
 - **Auth**: JWT (httpOnly cookies, force password change, forgot/reset)
 - **Integrations**: Google Meet, Zoom (S2S OAuth), SendGrid (emails)
 
-## What's Been Implemented
+## All Implemented Features
 
-### Phase 1-4: Core, Zoom, Calendar, Attendance, Payments, Branding
-
-### Phase 5 - Major Upgrade (April 21, 2026)
-- **Extended Teacher Management**: phone, qualification, experience, date_of_joining, teaching_levels (multi-select: Primary/Middle/Secondary/Higher Secondary), subjects (multi-select)
-- **Extended Student Management**: grade (Nursery-Class 12), board (ICSE/CBSE/IB/IGCSE/Mixed), date_of_admission, subjects
-- **Group Class Support**: class_type (individual/group), multi-student selection, shared meet link
-- **Edit/Delete**: Admin can edit teachers/students/classes with pre-filled forms, delete with confirmation popup
-- **Password Management**: Force change on first login, change password from dashboard, forgot password with SendGrid email reset link
-- **SendGrid Email**: Login credentials sent on user creation, password reset emails with branded HTML templates
-- **Recording Links**: Optional Zoom recording URL per class, visible to admin+student, hidden from teachers
-- **Sorting**: Classes sorted by creation time (newest first)
-- **Calendar View**: Month + Week toggle for Admin/Teacher/Student with Regenerate Zoom Link (admin only)
+### Core: JWT auth, admin CRUD, class scheduling, Google Meet, class limits
+### Zoom: Auto-meeting creation (single + bulk), unique links per class, batching/retry
+### Attendance: Join/Leave buttons, server-side timestamps, duration calc, reports
+### Courses: CRUD, assign students/teachers
+### Payments: Cycle-based (INR), per-class, teacher cycle view, payment recording
+### Branding: DIGI TUTORIAL CLASSES logo, headers, footers on all pages
+### Notifications: Admin bell icon, cycle completion alerts
+### Extended Models: Teacher (qualification, levels, subjects), Student (grade, board, DOA)
+### Group Classes: Individual + group with multi-student selection
+### Edit/Delete: Admin edit teachers/students/classes, delete with confirmation
+### Auth: Force password change, forgot password (SendGrid email), reset with token
+### SendGrid: Branded credential emails, password reset emails
+### Recording Links: Per-class, visible to admin+student, hidden from teacher
+### Calendar: Month + Week views for all roles
+### Drag & Drop Rescheduling: Admin-only, auto-save on drop (month keeps time, week sets hour)
+### Subject-Teacher Mapping: CRUD per student, "By Student" grouped view, student "By Subject" tab
 
 ## Test Credentials
 - Admin: admin@classplatform.com / admin123
@@ -28,8 +32,8 @@
 
 ## Backlog
 ### P1 - Next
-- [ ] Drag & drop rescheduling on calendar
-- [ ] Multi-subject teacher-student assignment
+- [ ] Parent portal (view child's attendance, recordings, payments)
+- [ ] WhatsApp notifications
 ### P2 - Future
 - [ ] Live chat during class
 - [ ] File upload & assignment system
