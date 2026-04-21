@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Users, GraduationCap, Calendar, BookOpen, Clock, CreditCard, BarChart3, Video, LogOut, Bell, CalendarPlus, CalendarDays } from 'lucide-react';
+import { Users, GraduationCap, Calendar, BookOpen, Clock, CreditCard, BarChart3, Video, LogOut, Bell, CalendarPlus, CalendarDays, Link2 } from 'lucide-react';
 import CalendarView from '../components/CalendarView';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -25,6 +25,7 @@ const AdminDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [payments, setPayments] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [subjectAssignments, setSubjectAssignments] = useState([]);
   const [zoomConfigured, setZoomConfigured] = useState(false);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
@@ -79,6 +80,12 @@ const AdminDashboard = () => {
   const [editDialog, setEditDialog] = useState(null); // {type: 'teacher'|'student'|'class', data: {...}}
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
+  // Subject Assignment form
+  const [saStudent, setSaStudent] = useState('');
+  const [saSubject, setSaSubject] = useState('');
+  const [saTeacher, setSaTeacher] = useState('');
+  const ALL_SUBJECTS = ['Math','Science','English','Social Studies','Hindi','Sanskrit','Computer','Spanish','German','French','Public Speaking'];
+
   // Bulk schedule form
   const [bulkStudent, setBulkStudent] = useState('');
   const [bulkTeacher, setBulkTeacher] = useState('');
@@ -112,7 +119,7 @@ const AdminDashboard = () => {
   const [reportFilter, setReportFilter] = useState({});
 
   const fetchAll = useCallback(() => {
-    fetchStats(); fetchTeachers(); fetchStudents(); fetchClasses(); fetchCourses(); fetchPayments(); fetchNotifications(); checkZoom();
+    fetchStats(); fetchTeachers(); fetchStudents(); fetchClasses(); fetchCourses(); fetchPayments(); fetchNotifications(); fetchSubjectAssignments(); checkZoom();
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -124,6 +131,7 @@ const AdminDashboard = () => {
   const fetchCourses = async () => { try { const { data } = await ax('/api/admin/courses'); setCourses(data); } catch (e) {} };
   const fetchPayments = async () => { try { const { data } = await ax('/api/admin/payments'); setPayments(data); } catch (e) {} };
   const fetchNotifications = async () => { try { const { data } = await ax('/api/admin/notifications'); setNotifications(data); } catch (e) {} };
+  const fetchSubjectAssignments = async () => { try { const { data } = await ax('/api/admin/subject-assignments'); setSubjectAssignments(data); } catch (e) {} };
   const checkZoom = async () => { try { const { data } = await ax('/api/admin/zoom-status'); setZoomConfigured(data.connected); } catch (e) {} };
 
   const handleCreateTeacher = async (e) => {
@@ -175,6 +183,19 @@ const AdminDashboard = () => {
       else if (editDialog.type === 'class') await ax(`/api/admin/classes/${editDialog.data._id}`, { method: 'PATCH', data: editDialog.data });
       toast.success('Updated'); setEditDialog(null); fetchAll();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleAssignSubject = async (e) => {
+    e.preventDefault();
+    if (!saStudent || !saSubject || !saTeacher) { toast.error('All fields required'); return; }
+    try {
+      await ax('/api/admin/subject-assignments', { method: 'POST', data: { student_id: saStudent, subject: saSubject, teacher_id: saTeacher } });
+      toast.success('Subject assigned'); setSaStudent(''); setSaSubject(''); setSaTeacher('');
+      fetchSubjectAssignments();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+  const handleDeleteSubjectAssignment = async (id) => {
+    try { await ax(`/api/admin/subject-assignments/${id}`, { method: 'DELETE' }); toast.success('Removed'); fetchSubjectAssignments(); } catch (e) { toast.error('Failed'); }
   };
 
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -242,6 +263,7 @@ const AdminDashboard = () => {
           <NavItem icon={GraduationCap} label="Students" value="students" />
           <NavItem icon={Calendar} label="Classes" value="classes" />
           <NavItem icon={CalendarDays} label="Calendar" value="calendar" />
+          <NavItem icon={Link2} label="Subject Map" value="subjects" />
           <NavItem icon={BookOpen} label="Courses" value="courses" />
           <NavItem icon={Clock} label="Reports" value="reports" />
           <NavItem icon={CreditCard} label="Payments" value="payments" />
@@ -560,6 +582,56 @@ const AdminDashboard = () => {
             </div>
           )}
 
+
+          {/* SUBJECT MAP TAB */}
+          {activeTab === 'subjects' && (
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900 mb-6" style={{ fontFamily: 'Outfit' }}>Subject-Teacher Mapping</h1>
+              {/* Assignment Form */}
+              <Card className="p-5 border border-gray-200 rounded-md mb-6">
+                <form onSubmit={handleAssignSubject} className="flex flex-wrap gap-4 items-end">
+                  <div className="flex-1 min-w-[150px]"><Label className="text-xs">Student</Label><select value={saStudent} onChange={e => setSaStudent(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2 text-sm" data-testid="sa-student-select"><option value="">Select...</option>{students.map(s => <option key={s._id} value={s._id}>{s.student_name}</option>)}</select></div>
+                  <div className="flex-1 min-w-[150px]"><Label className="text-xs">Subject</Label><select value={saSubject} onChange={e => setSaSubject(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2 text-sm" data-testid="sa-subject-select"><option value="">Select...</option>{ALL_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                  <div className="flex-1 min-w-[150px]"><Label className="text-xs">Teacher</Label><select value={saTeacher} onChange={e => setSaTeacher(e.target.value)} required className="w-full border border-gray-200 rounded-md p-2 text-sm" data-testid="sa-teacher-select"><option value="">Select...</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
+                  <Button type="submit" className="bg-[#5B21B6] hover:bg-[#4C1D95] text-white" data-testid="sa-assign-button">Assign</Button>
+                </form>
+              </Card>
+              {/* Assignments Table */}
+              <div className="border border-gray-200 rounded-md">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Student</TableHead><TableHead>Subject</TableHead><TableHead>Teacher</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {subjectAssignments.length === 0 ? <TableRow><TableCell colSpan={4} className="text-center text-gray-500">No assignments yet</TableCell></TableRow> :
+                      subjectAssignments.map(a => (
+                        <TableRow key={a._id}><TableCell>{a.student_name}</TableCell><TableCell><span className="px-2 py-1 rounded-sm text-xs bg-purple-100 text-purple-700">{a.subject}</span></TableCell><TableCell>{a.teacher_name}</TableCell>
+                          <TableCell><button onClick={() => handleDeleteSubjectAssignment(a._id)} className="text-xs text-red-600 hover:underline" data-testid={`sa-delete-${a._id}`}>Remove</button></TableCell>
+                        </TableRow>
+                      ))
+                    }
+                  </TableBody>
+                </Table>
+              </div>
+              {/* Grouped by student */}
+              {students.length > 0 && (
+                <div className="mt-8">
+                  <h2 className="text-lg font-medium text-gray-900 mb-4">By Student</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {students.filter(s => subjectAssignments.some(a => a.student_id === s._id)).map(s => {
+                      const sAssignments = subjectAssignments.filter(a => a.student_id === s._id);
+                      return (
+                        <Card key={s._id} className="p-4 border border-gray-200 rounded-md">
+                          <p className="font-medium text-gray-900 mb-2">{s.student_name}</p>
+                          <div className="space-y-1">{sAssignments.map(a => (
+                            <div key={a._id} className="flex justify-between text-sm"><span className="text-[#5B21B6]">{a.subject}</span><span className="text-gray-500">{a.teacher_name}</span></div>
+                          ))}</div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* CALENDAR TAB */}
           {activeTab === 'calendar' && (
             <div>
@@ -567,9 +639,10 @@ const AdminDashboard = () => {
               <CalendarView
                 classes={classes}
                 role="admin"
+                onRefresh={fetchClasses}
                 onRegenerateZoom={async (classId) => {
                   try {
-                    const { data } = await ax(`/api/admin/classes/${classId}/regenerate-zoom`, { method: 'POST' });
+                    await ax(`/api/admin/classes/${classId}/regenerate-zoom`, { method: 'POST' });
                     toast.success(`Zoom link regenerated!`);
                     fetchClasses();
                   } catch (e) {

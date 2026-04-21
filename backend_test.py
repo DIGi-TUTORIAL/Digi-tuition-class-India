@@ -425,6 +425,99 @@ class ClassPlatformTester:
             print("   ❌ Reset password should have failed with invalid token")
             return False
 
+    def test_subject_assignments(self):
+        """Test subject-teacher mapping CRUD operations"""
+        print("\n🎯 Testing Subject-Teacher Mapping...")
+        
+        # Get students and teachers first
+        success, students = self.run_test("Get Students", "GET", "admin/students", 200)
+        if not success or not students:
+            print("❌ Cannot test subject assignments - no students found")
+            return False
+            
+        success, teachers = self.run_test("Get Teachers", "GET", "admin/teachers", 200)
+        if not success or not teachers:
+            print("❌ Cannot test subject assignments - no teachers found")
+            return False
+
+        student_id = students[0]['_id']
+        teacher_id = teachers[0]['_id']
+
+        # Create subject assignment
+        success, assignment = self.run_test(
+            "Create Subject Assignment",
+            "POST",
+            "admin/subject-assignments",
+            200,
+            data={
+                "student_id": student_id,
+                "subject": "Math",
+                "teacher_id": teacher_id
+            }
+        )
+        if not success:
+            return False
+
+        assignment_id = assignment.get('_id')
+
+        # Get all subject assignments
+        success, assignments = self.run_test(
+            "Get Subject Assignments",
+            "GET",
+            "admin/subject-assignments",
+            200
+        )
+        if not success:
+            return False
+
+        # Get student-specific assignments
+        success, student_assignments = self.run_test(
+            "Get Student Subject Assignments",
+            "GET",
+            f"admin/subject-assignments/{student_id}",
+            200
+        )
+        if not success:
+            return False
+
+        # Delete subject assignment
+        if assignment_id:
+            success, _ = self.run_test(
+                "Delete Subject Assignment",
+                "DELETE",
+                f"admin/subject-assignments/{assignment_id}",
+                200
+            )
+            if not success:
+                return False
+
+        return True
+
+    def test_class_reschedule(self):
+        """Test class rescheduling API"""
+        print("\n📅 Testing Class Rescheduling...")
+        
+        # Get existing classes
+        success, classes = self.run_test("Get Classes", "GET", "admin/classes", 200)
+        if not success or not classes:
+            print("❌ Cannot test reschedule - no classes found")
+            return False
+
+        class_id = classes[0]['_id']
+        
+        # Test reschedule API
+        from datetime import datetime, timedelta
+        new_datetime = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M")
+        success, _ = self.run_test(
+            "Reschedule Class",
+            "PATCH",
+            f"admin/classes/{class_id}/reschedule",
+            200,
+            data={"date_time": new_datetime}
+        )
+        
+        return success
+
 def main():
     print("🚀 Starting Class Platform API Tests...")
     print("=" * 50)
@@ -463,6 +556,12 @@ def main():
     tester.test_change_password_endpoint()
     tester.test_forgot_password_endpoint()
     tester.test_reset_password_endpoint()
+    
+    # Test new features
+    print("\n📋 NEW FEATURES TESTS")
+    print("-" * 30)
+    tester.test_subject_assignments()
+    tester.test_class_reschedule()
     
     # Now test teacher functionality
     print("\n📋 TEACHER FUNCTIONALITY TESTS")

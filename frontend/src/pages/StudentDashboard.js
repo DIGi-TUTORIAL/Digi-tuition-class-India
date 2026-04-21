@@ -121,7 +121,7 @@ const StudentDashboard = () => {
         </div>
 
         <Tabs defaultValue="upcoming" className="space-y-4">
-          <TabsList><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="calendar">Calendar</TabsTrigger><TabsTrigger value="completed">Completed</TabsTrigger><TabsTrigger value="attendance">Attendance Log</TabsTrigger></TabsList>
+          <TabsList><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="by-subject">By Subject</TabsTrigger><TabsTrigger value="calendar">Calendar</TabsTrigger><TabsTrigger value="completed">Completed</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger></TabsList>
 
           <TabsContent value="upcoming">
             {scheduledClasses.length === 0 ? <Card className="p-8 border border-gray-200 rounded-md text-center"><p className="text-gray-500">No upcoming classes</p></Card> : (
@@ -129,7 +129,10 @@ const StudentDashboard = () => {
                 {scheduledClasses.map(cls => (
                   <Card key={cls._id} className="p-6 border border-gray-200 rounded-md hover:border-[#5B21B6] transition-colors duration-200" data-testid={`class-card-${cls._id}`}>
                     <div className="mb-3 flex items-center justify-between">
-                      <span className={`px-2 py-1 rounded-sm text-xs ${cls.platform === 'zoom' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{cls.platform === 'zoom' ? 'Zoom' : 'Meet'}</span>
+                      <div className="flex gap-2">
+                        <span className={`px-2 py-1 rounded-sm text-xs ${cls.platform === 'zoom' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{cls.platform === 'zoom' ? 'Zoom' : 'Meet'}</span>
+                        {cls.subject && <span className="px-2 py-1 rounded-sm text-xs bg-gray-100 text-gray-700">{cls.subject}</span>}
+                      </div>
                       {cls.status === 'in_progress' && <span className="px-2 py-1 rounded-sm text-xs bg-yellow-100 text-yellow-700">In Progress</span>}
                     </div>
                     <div className="mb-3"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500 mb-1">Teacher</p><p className="text-base text-gray-900">{cls.teacher_name}</p></div>
@@ -147,6 +150,53 @@ const StudentDashboard = () => {
             )}
           </TabsContent>
 
+
+          <TabsContent value="by-subject">
+            {(() => {
+              const subjects = [...new Set(classes.filter(c => c.subject).map(c => c.subject))];
+              const noSubject = classes.filter(c => !c.subject);
+              return subjects.length === 0 && noSubject.length === 0 ? (
+                <Card className="p-8 border border-gray-200 rounded-md text-center"><p className="text-gray-500">No classes with subjects assigned</p></Card>
+              ) : (
+                <div className="space-y-6">
+                  {subjects.map(subj => {
+                    const subjClasses = classes.filter(c => c.subject === subj);
+                    const scheduled = subjClasses.filter(c => c.status === 'scheduled' || c.status === 'in_progress');
+                    const done = subjClasses.filter(c => c.status === 'completed');
+                    return (
+                      <Card key={subj} className="p-5 border border-gray-200 rounded-md" data-testid={`subject-group-${subj}`}>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-medium text-gray-900" style={{ fontFamily: 'Outfit' }}>{subj}</h3>
+                          <div className="flex gap-3 text-xs text-gray-500">
+                            <span>{scheduled.length} upcoming</span>
+                            <span>{done.length} completed</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          {subjClasses.slice(0, 5).map(cls => (
+                            <div key={cls._id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
+                              <div className="flex items-center gap-3">
+                                <span className={`px-2 py-1 rounded-sm text-xs ${cls.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>{cls.status}</span>
+                                <span className="text-sm text-gray-900">{cls.teacher_name}</span>
+                                <span className="text-xs text-gray-500">{new Date(cls.date_time).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {subjClasses.length > 5 && <p className="text-xs text-gray-400 pt-1">+{subjClasses.length - 5} more classes</p>}
+                        </div>
+                      </Card>
+                    );
+                  })}
+                  {noSubject.length > 0 && (
+                    <Card className="p-5 border border-gray-200 rounded-md">
+                      <h3 className="text-lg font-medium text-gray-500 mb-2">No Subject Assigned</h3>
+                      <p className="text-sm text-gray-400">{noSubject.length} classes without subject</p>
+                    </Card>
+                  )}
+                </div>
+              );
+            })()}
+          </TabsContent>
           <TabsContent value="calendar">
             <CalendarView classes={classes} role="student" />
           </TabsContent>

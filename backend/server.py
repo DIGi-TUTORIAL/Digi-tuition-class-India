@@ -166,6 +166,11 @@ class AssignCourseRequest(BaseModel):
 class SetTeacherRateRequest(BaseModel):
     hourly_rate: float
 
+class SubjectAssignmentRequest(BaseModel):
+    student_id: str
+    subject: str
+    teacher_id: str
+
 class RecordPaymentRequest(BaseModel):
     teacher_id: str
     amount: float
@@ -415,6 +420,61 @@ async def update_student(student_id: str, request: Request, user: dict = Depends
                 await db.users.update_one({"_id": ObjectId(student.get("user_id"))}, {"$set": {"name": update["student_name"]}})
     return {"message": "Student updated"}
 
+# =================== ADMIN - SUBJECT ASSIGNMENTS ===================
+@api_router.post("/admin/subject-assignments")
+async def create_subject_assignment(req: SubjectAssignmentRequest, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    # Check for duplicate
+    existing = await db.subject_assignments.find_one({"student_id": req.student_id, "subject": req.subject})
+    if existing:
+        # Update teacher
+        await db.subject_assignments.update_one({"_id": existing["_id"]}, {"$set": {"teacher_id": req.teacher_id}})
+        return {"message": "Subject assignment updated", "_id": str(existing["_id"])}
+    doc = {"student_id": req.student_id, "subject": req.subject, "teacher_id": req.teacher_id, "created_at": datetime.now(timezone.utc)}
+    result = await db.subject_assignments.insert_one(doc)
+    return {"_id": str(result.inserted_id), "message": "Subject assigned"}
+
+@api_router.get("/admin/subject-assignments")
+async def get_subject_assignments(user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    assignments = await db.subject_assignments.find({}).to_list(5000)
+    result = []
+    for a in assignments:
+        a["_id"] = str(a["_id"])
+        try:
+            student = await db.students.find_one({"_id": ObjectId(a["student_id"])})
+            a["student_name"] = student.get("student_name", "") if student else ""
+        except Exception:
+            a["student_name"] = ""
+        try:
+            teacher = await db.users.find_one({"_id": ObjectId(a["teacher_id"])})
+            a["teacher_name"] = teacher.get("name", "") if teacher else ""
+        except Exception:
+            a["teacher_name"] = ""
+        result.append(a)
+    return result
+
+@api_router.get("/admin/subject-assignments/{student_id}")
+async def get_student_subject_assignments(student_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    assignments = await db.subject_assignments.find({"student_id": student_id}).to_list(100)
+    result = []
+    for a in assignments:
+        a["_id"] = str(a["_id"])
+        try:
+            teacher = await db.users.find_one({"_id": ObjectId(a["teacher_id"])})
+            a["teacher_name"] = teacher.get("name", "") if teacher else ""
+        except Exception:
+            a["teacher_name"] = ""
+        result.append(a)
+    return result
+
+@api_router.delete("/admin/subject-assignments/{assignment_id}")
+async def delete_subject_assignment(assignment_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    await db.subject_assignments.delete_one({"_id": ObjectId(assignment_id)})
+    return {"message": "Assignment removed"}
+
 # =================== ADMIN - COURSES ===================
 @api_router.post("/admin/courses")
 async def create_course(req: CreateCourseRequest, user: dict = Depends(get_current_user)):
@@ -585,6 +645,17 @@ async def delete_class(class_id: str, user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
     await db.classes.delete_one({"_id": ObjectId(class_id)})
     return {"message": "Class deleted"}
+
+class RescheduleRequest(BaseModel):
+    date_time: str
+
+@api_router.patch("/admin/classes/{class_id}/reschedule")
+async def reschedule_class(class_id: str, req: RescheduleRequest, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    result = await db.classes.update_one({"_id": ObjectId(class_id)}, {"$set": {"date_time": req.date_time}})
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Class not found")
+    return {"message": "Class rescheduled"}
 
 # =================== ADMIN - REGENERATE ZOOM LINK ===================
 @api_router.post("/admin/classes/{class_id}/regenerate-zoom")
@@ -1156,7 +1227,8 @@ async def get_student_classes(user: dict = Depends(get_current_user)):
     if not student:
         raise HTTPException(status_code=404, detail="Student profile not found")
     student_id = str(student["_id"])
-    classes = await db.classes.find({"student_id": student_id}).to_list(1000)
+    # Find classes where student is individual or in group
+    classes = await db.classes.find({"$or": [{"student_id": student_id}, {"student_ids": student_id}]}).sort("created_at", -1).to_list(1000)
     result = []
     for c in classes:
         c["_id"] = str(c["_id"])
@@ -1166,7 +1238,6 @@ async def get_student_classes(user: dict = Depends(get_current_user)):
                 c["teacher_name"] = teacher.get("name")
         except Exception:
             pass
-        # Check if student has active attendance
         att = await db.attendance_logs.find_one({"class_id": c["_id"], "user_id": user["_id"], "role": "student", "leave_time": None})
         c["is_joined"] = att is not None
         result.append(c)
