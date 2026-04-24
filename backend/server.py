@@ -338,7 +338,7 @@ async def create_teacher(req: CreateTeacherRequest, user: dict = Depends(get_cur
 @api_router.get("/admin/teachers")
 async def get_teachers(user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
-    teachers = await db.users.find({"role": "teacher"}, {"password_hash": 0}).to_list(1000)
+    teachers = await db.users.find({"role": "teacher"}, {"password_hash": 0}).sort("created_at", -1).to_list(1000)
     for t in teachers:
         t["_id"] = str(t["_id"])
     return teachers
@@ -394,7 +394,7 @@ async def create_student(req: CreateStudentRequest, user: dict = Depends(get_cur
 @api_router.get("/admin/students")
 async def get_students(user: dict = Depends(get_current_user)):
     await require_role(user, ["admin"])
-    students = await db.students.find({}).to_list(1000)
+    students = await db.students.find({}).sort("created_at", -1).to_list(1000)
     result = []
     for s in students:
         s["_id"] = str(s["_id"])
@@ -419,6 +419,21 @@ async def update_student(student_id: str, request: Request, user: dict = Depends
             if student:
                 await db.users.update_one({"_id": ObjectId(student.get("user_id"))}, {"$set": {"name": update["student_name"]}})
     return {"message": "Student updated"}
+
+@api_router.delete("/admin/students/{student_id}")
+async def delete_student(student_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, ["admin"])
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    # Delete user account, student profile, enrollment, and subject assignments
+    user_id = student.get("user_id", "")
+    if user_id:
+        await db.users.delete_one({"_id": ObjectId(user_id)})
+    await db.students.delete_one({"_id": ObjectId(student_id)})
+    await db.enrollments.delete_many({"student_id": student_id})
+    await db.subject_assignments.delete_many({"student_id": student_id})
+    return {"message": "Student deleted"}
 
 # =================== ADMIN - SUBJECT ASSIGNMENTS ===================
 @api_router.post("/admin/subject-assignments")

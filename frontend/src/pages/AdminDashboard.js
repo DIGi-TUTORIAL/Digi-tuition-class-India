@@ -175,6 +175,9 @@ const AdminDashboard = () => {
   const handleDeleteTeacher = async (id) => {
     try { await ax(`/api/admin/teachers/${id}`, { method: 'DELETE' }); toast.success('Teacher deleted'); fetchTeachers(); fetchStats(); setDeleteConfirm(null); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
+  const handleDeleteStudent = async (id) => {
+    try { await ax(`/api/admin/students/${id}`, { method: 'DELETE' }); toast.success('Student deleted'); fetchStudents(); fetchStats(); setDeleteConfirm(null); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
   const handleSaveEdit = async () => {
     if (!editDialog) return;
     try {
@@ -352,12 +355,18 @@ const AdminDashboard = () => {
               </div>
               <div className="border border-gray-200 rounded-md">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Payment Mode</TableHead><TableHead>Cycle</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Payment Mode</TableHead><TableHead>Cycle</TableHead><TableHead>Amount</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{teachers.map(t => (
                     <TableRow key={t._id}><TableCell>{t.name}</TableCell><TableCell>{t.email}</TableCell>
                       <TableCell><span className={`px-2 py-1 rounded-sm text-xs ${t.payment_mode === 'cycle' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>{t.payment_mode === 'cycle' ? 'Cycle' : 'Per Class'}</span></TableCell>
                       <TableCell>{t.payment_mode === 'cycle' ? `${t.cycle_size || 8} classes` : '-'}</TableCell>
                       <TableCell>{t.payment_mode === 'cycle' ? `INR ${t.cycle_amount || 0}` : `INR ${t.hourly_rate || 0}/hr`}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditDialog({ type: 'teacher', data: { _id: t._id, name: t.name, phone: t.phone || '', qualification: t.qualification || '' } })} className="text-xs text-[#5B21B6] hover:underline" data-testid={`edit-teacher-${t._id}`}>Edit</button>
+                          <button onClick={() => setDeleteConfirm({ type: 'teacher', id: t._id, name: t.name })} className="text-xs text-red-600 hover:underline" data-testid={`delete-teacher-${t._id}`}>Delete</button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}</TableBody>
                 </Table>
@@ -394,9 +403,16 @@ const AdminDashboard = () => {
               </div>
               <div className="border border-gray-200 rounded-md">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Parent</TableHead><TableHead>Contact</TableHead><TableHead>Email</TableHead><TableHead>Total</TableHead><TableHead>Used</TableHead><TableHead>Remaining</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Parent</TableHead><TableHead>Contact</TableHead><TableHead>Email</TableHead><TableHead>Total</TableHead><TableHead>Used</TableHead><TableHead>Remaining</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{students.map(s => (
-                    <TableRow key={s._id}><TableCell>{s.student_name}</TableCell><TableCell>{s.parent_name}</TableCell><TableCell>{s.contact_number}</TableCell><TableCell>{s.gmail_id}</TableCell><TableCell>{s.total_classes || 0}</TableCell><TableCell>{s.used_classes || 0}</TableCell><TableCell>{s.remaining_classes || 0}</TableCell></TableRow>
+                    <TableRow key={s._id}><TableCell>{s.student_name}</TableCell><TableCell>{s.parent_name}</TableCell><TableCell>{s.contact_number}</TableCell><TableCell>{s.gmail_id}</TableCell><TableCell>{s.total_classes || 0}</TableCell><TableCell>{s.used_classes || 0}</TableCell><TableCell>{s.remaining_classes || 0}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditDialog({ type: 'student', data: { _id: s._id, student_name: s.student_name, parent_name: s.parent_name, contact_number: s.contact_number } })} className="text-xs text-[#5B21B6] hover:underline" data-testid={`edit-student-${s._id}`}>Edit</button>
+                          <button onClick={() => setDeleteConfirm({ type: 'student', id: s._id, name: s.student_name })} className="text-xs text-red-600 hover:underline" data-testid={`delete-student-${s._id}`}>Delete</button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ))}</TableBody>
                 </Table>
               </div>
@@ -698,7 +714,7 @@ const AdminDashboard = () => {
               <h3 className="text-lg font-semibold mb-2">Confirm Delete</h3>
               <p className="text-sm text-gray-600 mb-6">Are you sure you want to delete this {deleteConfirm.type}: <strong>{deleteConfirm.name}</strong>?</p>
               <div className="flex gap-3">
-                <Button onClick={() => { if (deleteConfirm.type === 'class') handleDeleteClass(deleteConfirm.id); else if (deleteConfirm.type === 'teacher') handleDeleteTeacher(deleteConfirm.id); }} className="flex-1 bg-red-600 hover:bg-red-700 text-white" data-testid="delete-confirm-button">Delete</Button>
+                <Button onClick={() => { if (deleteConfirm.type === 'class') handleDeleteClass(deleteConfirm.id); else if (deleteConfirm.type === 'teacher') handleDeleteTeacher(deleteConfirm.id); else if (deleteConfirm.type === 'student') handleDeleteStudent(deleteConfirm.id); }} className="flex-1 bg-red-600 hover:bg-red-700 text-white" data-testid="delete-confirm-button">Delete</Button>
                 <Button onClick={() => setDeleteConfirm(null)} variant="outline" className="flex-1">Cancel</Button>
               </div>
             </Card>
